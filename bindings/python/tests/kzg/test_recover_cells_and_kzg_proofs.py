@@ -6,7 +6,7 @@ import pytest
 
 from eth_cryptography_specs import kzg
 
-import fixtures as F
+from . import fixtures as F
 from dumper import hex_list, write_case
 
 
