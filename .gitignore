@@ -1,0 +1,21 @@
+# Lake / Lean build outputs
+.lake/
+build/
+lake-packages/
+lakefile.olean
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.so
+*.dylib
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

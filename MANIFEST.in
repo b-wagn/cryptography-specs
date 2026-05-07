@@ -1,0 +1,18 @@
+# Include the Lean source tree, build descriptors, and the C-extension
+# header — none of which setuptools picks up by default. The wheel build
+# inside `setup.py` shells out to `lake build` over these files.
+
+include lakefile.lean
+include lake-manifest.json
+include lean-toolchain
+include bindings/python/wrappers.h
+
+recursive-include EthCryptographySpecs *.lean
+include EthCryptographySpecs.lean
+
+# Don't ship caches or local-only state.
+prune .lake
+prune .pytest_cache
+prune .venv
+prune tests
+global-exclude *.pyc __pycache__ .DS_Store

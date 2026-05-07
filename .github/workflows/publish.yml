@@ -1,0 +1,107 @@
+# Build wheels on every supported platform/Python combo and publish to
+# PyPI when a tag matching `v*` is pushed.
+
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    name: wheels — ${{ matrix.os }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+          - os: macos-latest
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # macOS runners build natively (no manylinux container), so elan
+      # needs to be on the host. Linux runners install elan inside the
+      # cibuildwheel container via CIBW_BEFORE_ALL_LINUX below.
+      - name: Install elan (macOS host)
+        if: runner.os == 'macOS'
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084 # v3.4.1
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+          # Python version filter comes from pyproject.toml's `requires-python`.
+          # PyPy is off by default. Skip Alpine for now.
+          CIBW_SKIP: "*-musllinux_*"
+
+          # Lean 4's bundled clang needs GLIBC >= 2.29; manylinux_2_28
+          # ships 2.28. manylinux_2_34 (GLIBC 2.34, ~RHEL 9 / Ubuntu 22.04)
+          # is the lowest tag that works.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_34
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_34
+
+          # Inside the manylinux container: install elan once, then
+          # `setup.py`'s LakeThenBuild handler will call `lake build`
+          # for each wheel.
+          CIBW_BEFORE_ALL_LINUX: |
+            curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+              | sh -s -- -y --default-toolchain none
+
+          # cibuildwheel expands $VAR at runtime in the container.
+          CIBW_ENVIRONMENT_LINUX: PATH=$HOME/.elan/bin:$PATH
+
+          # Force a fresh `lake build` per wheel to avoid stale objects
+          # from a previous Python ABI's compile.
+          CIBW_BEFORE_BUILD: lake clean
+
+          # Sanity check.
+          CIBW_TEST_EXTRAS: test
+          CIBW_TEST_COMMAND: >-
+            python -c "from eth_cryptography_specs import bls, kzg;
+            print(kzg.BYTES_PER_BLOB, bls.BYTES_PER_PUBKEY)"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+
+  build_sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version-file: pyproject.toml
+      - run: pip install build
+      - run: python -m build --sdist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: publish to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    # Only publish on a real tag push, not a manual dispatch.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0

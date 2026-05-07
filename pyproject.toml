@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eth-cryptography-specs"
+version = "0.1.0"
+description = "Cryptography specifications for Ethereum"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = "CC0-1.0"
+requires-python = ">=3.10"
+authors = [{ name = "ethereum" }]
+urls = { homepage = "https://github.com/ethereum/cryptography-specs" }
+
+[project.optional-dependencies]
+test = [
+  "pytest==9.0.3",
+  "ruamel.yaml==0.19.1",
+  "py_ecc==8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["bindings/python/tests"]
+pythonpath = ["bindings/python/tests"]
+# importlib import mode keeps the per-suite fixtures.py files from
+# clashing in sys.modules during collection.
+addopts = "--import-mode=importlib"
