@@ -30,20 +30,18 @@ deriving Inhabited
 
 namespace TrustedSetup
 
-private def nibble (c : Char) : Option UInt8 :=
+private def nibble (c : Char) : UInt8 :=
   let n := c.toNat
-  if 0x30 ≤ n ∧ n ≤ 0x39 then some (UInt8.ofNat (n - 0x30))
-  else if 0x61 ≤ n ∧ n ≤ 0x66 then some (UInt8.ofNat (n - 0x57))
-  else if 0x41 ≤ n ∧ n ≤ 0x46 then some (UInt8.ofNat (n - 0x37))
-  else none
+  if 0x30 ≤ n ∧ n ≤ 0x39 then UInt8.ofNat (n - 0x30)
+  else if 0x61 ≤ n ∧ n ≤ 0x66 then UInt8.ofNat (n - 0x57)
+  else if 0x41 ≤ n ∧ n ≤ 0x46 then UInt8.ofNat (n - 0x37)
+  else panic! "invalid hex"
 
 private def hexToBytesAux : List Char → ByteArray → ByteArray
   | [], acc => acc
   | [_], _ => panic! "invalid hex"
   | hi :: lo :: rest, acc =>
-    match nibble hi, nibble lo with
-    | some h, some l => hexToBytesAux rest (acc.push ((h <<< 4) ||| l))
-    | _, _ => panic! "invalid hex"
+    hexToBytesAux rest (acc.push ((nibble hi <<< 4) ||| nibble lo))
 
 private def hexToByteArray (s : String) : ByteArray :=
   hexToBytesAux s.toList ByteArray.empty

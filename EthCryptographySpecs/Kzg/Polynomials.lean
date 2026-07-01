@@ -58,19 +58,14 @@ def hashToBlsField (data : ByteArray) : Fr :=
   -- Reduce the 256-bit hash modulo BLS_MODULUS, then construct the field element.
   Fr.ofNat (bytesBEToNat h)
 
-/-- Decode a 32-byte big-endian integer as an `Fr`. Returns `none` if
-the integer is `≥ BLS_MODULUS` or the input has the wrong size. -/
-def bytesToBlsField (b : Bytes32) : Option Fr :=
-  if b.size = BYTES_PER_FIELD_ELEMENT then
-    Fr.fromBytesBE b
-  else
-    none
-
-/-- `bytesToBlsField` that panics on invalid input. -/
-@[inline] def bytesToBlsField! (b : Bytes32) : Fr :=
-  match bytesToBlsField b with
-  | some f => f
-  | none   => panic! "bytesToBlsField: bytes do not represent a valid field element"
+/-- Decode a 32-byte big-endian integer as an `Fr`. Throws if the input
+has the wrong size or the integer is `≥ BLS_MODULUS`. -/
+def bytesToBlsField (b : Bytes32) : Except KzgError Fr :=
+  if b.size ≠ BYTES_PER_FIELD_ELEMENT then
+    .error (.badFieldElementSize b.size)
+  else match Fr.fromBytesBE b with
+  | .ok f    => .ok f
+  | .error _ => .error (.invalidFieldElement none)
 
 /-- Encode `x` as 32 big-endian bytes. -/
 @[inline] def blsFieldToBytes (x : Fr) : Bytes32 := x.toBytesBE
@@ -105,8 +100,8 @@ def blobToPolynomial (blob : Blob) : Except KzgError Polynomial := do
     let start := i * BYTES_PER_FIELD_ELEMENT
     let stop  := (i + 1) * BYTES_PER_FIELD_ELEMENT
     match bytesToBlsField (blob.extract start stop) with
-    | some f => poly := poly.push f
-    | none   => throw (.invalidFieldElement (some i))
+    | .ok f    => poly := poly.push f
+    | .error _ => throw (.invalidFieldElement (some i))
   return poly
 
 /-! ## Evaluating a polynomial in evaluation form -/

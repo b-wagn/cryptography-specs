@@ -1,3 +1,5 @@
+import EthCryptographySpecs.Bls.Errors
+
 /-!
 # `Fr`
 
@@ -57,14 +59,14 @@ instance : Div Fr := ⟨fun a b => a * b.inverse⟩
 /-- `a ^ b` raises `a` to `b.val`, treating the exponent as an integer. -/
 instance : HPow Fr Fr Fr := ⟨fun a b => powNat a b.val⟩
 
-/-- Decode a 32-byte big-endian integer as an `Fr`. Returns `none` if
-the integer is `≥ r`. -/
-def fromBytesBE (b : ByteArray) : Option Fr := Id.run do
-  if b.size ≠ 32 then return none
+/-- Decode a 32-byte big-endian integer as an `Fr`. Throws if the input
+has the wrong size or the integer is `≥ r`. -/
+def fromBytesBE (b : ByteArray) : Except BlsError Fr := Id.run do
+  if b.size ≠ 32 then return .error .nonCanonicalFieldElement
   let mut acc : Nat := 0
   for i in [:32] do
     acc := (acc <<< 8) ||| b[i]!.toNat
-  return if acc < modulus then some ⟨acc⟩ else none
+  return if acc < modulus then .ok ⟨acc⟩ else .error .nonCanonicalFieldElement
 
 /-- Encode as 32 big-endian bytes. -/
 def toBytesBE (a : Fr) : ByteArray :=

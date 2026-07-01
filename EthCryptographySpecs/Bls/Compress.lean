@@ -41,35 +41,35 @@ def Fp2.signBit (y : Fp2) : Bool :=
 /-! ## Square root in Fp2 -/
 
 /-- Square root in `Fp2`. Returns `none` when `a` isn't a square. -/
-def Fp2.sqrt (a : Fp2) : Option Fp2 :=
+def Fp2.sqrt (a : Fp2) : Except BlsError Fp2 :=
   -- Pure-imaginary input: handle the case `a1 = 0` directly.
   if a.c1.isZero then
     match Fp.sqrt a.c0 with
-    | some s => some ⟨s, Fp.zero⟩
-    | none =>
+    | .ok s => .ok ⟨s, Fp.zero⟩
+    | .error _ =>
       -- −a₀ might be a square; if so, `sqrt(a) = 0 + sqrt(−a₀)·i`
       -- because `(s·i)² = s²·(−1) = −s²`.
       match Fp.sqrt (-a.c0) with
-      | some s => some ⟨Fp.zero, s⟩
-      | none   => none
+      | .ok s    => .ok ⟨Fp.zero, s⟩
+      | .error _ => .error .notASquare
   else
     -- Norm = a₀² + a₁² in Fp; we need its sqrt to exist.
     let n := a.c0 * a.c0 + a.c1 * a.c1
     match Fp.sqrt n with
-    | none => none
-    | some s =>
+    | .error _ => .error .notASquare
+    | .ok s =>
       let twoInv := (Fp.ofNat 2).inverse
       -- Try c₀² = (a₀ + s)/2, then fall back to (a₀ − s)/2.
       let try1 := Fp.sqrt ((a.c0 + s) * twoInv)
       let c0Opt :=
         match try1 with
-        | some _ => try1
-        | none   => Fp.sqrt ((a.c0 - s) * twoInv)
+        | .ok _    => try1
+        | .error _ => Fp.sqrt ((a.c0 - s) * twoInv)
       match c0Opt with
-      | none => none
-      | some c0Fp =>
+      | .error _ => .error .notASquare
+      | .ok c0Fp =>
         let c1Fp := a.c1 * (Fp.ofNat 2 * c0Fp).inverse
-        some ⟨c0Fp, c1Fp⟩
+        .ok ⟨c0Fp, c1Fp⟩
 
 /-- True iff `bytes[start..]` are all zero. -/
 private def tailAllZero (bytes : ByteArray) (start : Nat) : Bool := Id.run do
@@ -116,13 +116,13 @@ def uncompress (bytes : ByteArray) : Except BlsError G1 :=
       -- Strip flag bits from the high byte before decoding `x`.
       let xBytes := bytes.set! 0 (head &&& 0x1f)
       match Fp.fromBytesBE xBytes with
-      | none => .error .invalidG1Point
-      | some x =>
+      | .error _ => .error .invalidG1Point
+      | .ok x =>
         -- Compute y² = x³ + 4 and take a sqrt.
         let rhs := x * x * x + Fp.ofNat 4
         match Fp.sqrt rhs with
-        | none => .error .invalidG1Point
-        | some yPos =>
+        | .error _ => .error .invalidG1Point
+        | .ok yPos =>
           let y := if Fp.signBit yPos = ySign then yPos else -yPos
           .ok ⟨x, y, Fp.one⟩
 
@@ -180,12 +180,12 @@ def uncompress (bytes : ByteArray) : Except BlsError G2 :=
       let c1Bytes := cleared.extract 0 48
       let c0Bytes := cleared.extract 48 96
       match Fp.fromBytesBE c1Bytes, Fp.fromBytesBE c0Bytes with
-      | some c1, some c0 =>
+      | .ok c1, .ok c0 =>
         let x : Fp2 := ⟨c0, c1⟩
         let rhs := x * x * x + bTwist
         match Fp2.sqrt rhs with
-        | none => .error .invalidG2Point
-        | some yPos =>
+        | .error _ => .error .invalidG2Point
+        | .ok yPos =>
           let yNeg := -yPos
           let y := if Fp2.signBit yPos = ySign then yPos else yNeg
           .ok ⟨x, y, Fp2.one⟩

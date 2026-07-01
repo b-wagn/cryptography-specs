@@ -108,17 +108,17 @@ private def simpleSwu (u : Fp2) : Fp2 × Fp2 :=
       (-Bprime / Aprime) * (Fp2.one + denom.inverse)
   let gx1 := x1 * x1 * x1 + Aprime * x1 + Bprime
   match Fp2.sqrt gx1 with
-  | some y =>
+  | .ok y =>
     let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
     (x1, y)
-  | none =>
+  | .error _ =>
     let x2 := zu2 * x1
     let gx2 := x2 * x2 * x2 + Aprime * x2 + Bprime
     match Fp2.sqrt gx2 with
-    | some y =>
+    | .ok y =>
       let y := if sgn0Fp2 u = sgn0Fp2 y then y else -y
       (x2, y)
-    | none => panic! "simpleSwu: neither gx1 nor gx2 is a square"
+    | .error _ => panic! "neither gx1 nor gx2 is a square"
 
 /-! ## 3-isogeny map `E' → E` (RFC 9380 Appendix E.3)
 

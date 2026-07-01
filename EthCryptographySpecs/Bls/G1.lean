@@ -94,13 +94,6 @@ def toAffine (p : G1) : Fp × Fp :=
     let zinv3 := zinv2 * zinv
     (p.x * zinv2, p.y * zinv3)
 
-/-- Check `Y² = X³ + 4·Z⁶`, the Jacobian form of `y² = x³ + 4`. -/
-def onCurve (p : G1) : Bool :=
-  if p.z.isZero then true else
-    let z2 := p.z * p.z
-    let z6 := z2 * z2 * z2
-    Fp.beq (p.y * p.y) (p.x * p.x * p.x + Fp.ofNat 4 * z6)
-
 /-- Scalar multiplication via double-and-add. -/
 partial def mulNat (p : G1) (k : Nat) : G1 :=
   if k = 0 then zero

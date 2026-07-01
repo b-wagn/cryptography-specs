@@ -38,12 +38,12 @@ private def validateKzgG1 (b : Bytes48) : Bool :=
   else (Bls.G1.keyValidate b).isOk
 
 /-- Validate untrusted bytes as a `KZGCommitment`. -/
-def bytesToKzgCommitment (b : Bytes48) : Option KZGCommitment :=
-  if validateKzgG1 b then some b else none
+def bytesToKzgCommitment (b : Bytes48) : Except KzgError KZGCommitment :=
+  if validateKzgG1 b then .ok b else .error (.invalidCommitment none)
 
 /-- Validate untrusted bytes as a `KZGProof`. -/
-def bytesToKzgProof (b : Bytes48) : Option KZGProof :=
-  if validateKzgG1 b then some b else none
+def bytesToKzgProof (b : Bytes48) : Except KzgError KZGProof :=
+  if validateKzgG1 b then .ok b else .error (.invalidProof none)
 
 /-- Fiat-Shamir challenge for a (blob, commitment) pair. -/
 def computeChallenge (blob : Blob) (commitment : KZGCommitment) : Fr :=
@@ -116,9 +116,7 @@ def computeKzgProof (blob : Blob) (zBytes : Bytes32) : KzgM (KZGProof × Bytes32
   if zBytes.size ≠ BYTES_PER_FIELD_ELEMENT then
     throw (.badFieldElementSize zBytes.size)
   let polynomial ← blobToPolynomial blob
-  let z ← match bytesToBlsField zBytes with
-          | some f => pure f
-          | none   => throw (.invalidFieldElement none)
+  let z ← bytesToBlsField zBytes
   let (proof, y) ← computeKzgProofImpl polynomial z
   return (proof, blsFieldToBytes y)
 
@@ -151,18 +149,10 @@ def verifyKzgProof
     throw (.badFieldElementSize yBytes.size)
   if proofBytes.size ≠ BYTES_PER_PROOF then
     throw (.badProofSize proofBytes.size)
-  let commitment ← match bytesToKzgCommitment commitmentBytes with
-                   | some c => pure c
-                   | none   => throw (.invalidCommitment none)
-  let proof ← match bytesToKzgProof proofBytes with
-              | some p => pure p
-              | none   => throw (.invalidProof none)
-  let z ← match bytesToBlsField zBytes with
-          | some f => pure f
-          | none   => throw (.invalidFieldElement none)
-  let y ← match bytesToBlsField yBytes with
-          | some f => pure f
-          | none   => throw (.invalidFieldElement none)
+  let commitment ← bytesToKzgCommitment commitmentBytes
+  let proof ← bytesToKzgProof proofBytes
+  let z ← bytesToBlsField zBytes
+  let y ← bytesToBlsField yBytes
   verifyKzgProofImpl commitment z y proof
 
 /-- Verify multiple KZG proofs efficiently using a random linear combination. -/
@@ -221,9 +211,7 @@ def computeBlobKzgProof (blob : Blob) (commitmentBytes : Bytes48) : KzgM KZGProo
     throw (.badBlobSize blob.size)
   if commitmentBytes.size ≠ BYTES_PER_COMMITMENT then
     throw (.badCommitmentSize commitmentBytes.size)
-  let commitment ← match bytesToKzgCommitment commitmentBytes with
-                   | some c => pure c
-                   | none   => throw (.invalidCommitment none)
+  let commitment ← bytesToKzgCommitment commitmentBytes
   let polynomial ← blobToPolynomial blob
   let evaluationChallenge := computeChallenge blob commitment
   let (proof, _) ← computeKzgProofImpl polynomial evaluationChallenge
@@ -239,15 +227,11 @@ def verifyBlobKzgProof
     throw (.badCommitmentSize commitmentBytes.size)
   if proofBytes.size ≠ BYTES_PER_PROOF then
     throw (.badProofSize proofBytes.size)
-  let commitment ← match bytesToKzgCommitment commitmentBytes with
-                   | some c => pure c
-                   | none   => throw (.invalidCommitment none)
+  let commitment ← bytesToKzgCommitment commitmentBytes
   let polynomial ← blobToPolynomial blob
   let evaluationChallenge := computeChallenge blob commitment
   let y := evaluatePolynomialInEvaluationForm polynomial evaluationChallenge
-  let proof ← match bytesToKzgProof proofBytes with
-              | some p => pure p
-              | none   => throw (.invalidProof none)
+  let proof ← bytesToKzgProof proofBytes
   verifyKzgProofImpl commitment evaluationChallenge y proof
 
 /-- Verify a batch of (blob, commitment, proof) triples. Returns `true`
@@ -276,11 +260,11 @@ def verifyBlobKzgProofBatch
       throw (.badProofSize pb.size)
 
     let commitment ← match bytesToKzgCommitment cb with
-                     | some c => pure c
-                     | none   => throw (.invalidCommitment (some i))
+                     | .ok c    => pure c
+                     | .error _ => throw (.invalidCommitment (some i))
     let proof ← match bytesToKzgProof pb with
-                | some p => pure p
-                | none   => throw (.invalidProof (some i))
+                | .ok p    => pure p
+                | .error _ => throw (.invalidProof (some i))
 
     let polynomial ← blobToPolynomial blob
     let challenge := computeChallenge blob commitment

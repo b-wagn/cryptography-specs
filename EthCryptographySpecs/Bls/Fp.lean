@@ -1,3 +1,5 @@
+import EthCryptographySpecs.Bls.Errors
+
 /-!
 # `Fp`
 
@@ -58,15 +60,11 @@ partial def powNat (base : Fp) (e : Nat) : Fp :=
 
 instance : Div Fp := ⟨fun a b => a * b.inverse⟩
 
-/-- Square root, valid for `p ≡ 3 (mod 4)`. Returns `none` if `a` is not
-a square. -/
-def sqrt (a : Fp) : Option Fp :=
+/-- Square root, valid for `p ≡ 3 (mod 4)`. Throws `notASquare` if `a`
+is not a square. -/
+def sqrt (a : Fp) : Except BlsError Fp :=
   let cand := powNat a ((modulus + 1) / 4)
-  if (cand * cand).beq a then some cand else none
-
-/-- Legendre symbol: `1` for nonzero squares, `p−1` for non-squares,
-`0` for zero. -/
-def legendre (a : Fp) : Fp := powNat a ((modulus - 1) / 2)
+  if (cand * cand).beq a then .ok cand else .error .notASquare
 
 /-- Decode big-endian bytes as a `Nat`. -/
 def bytesBEToNat (b : ByteArray) : Nat := Id.run do
@@ -75,13 +73,13 @@ def bytesBEToNat (b : ByteArray) : Nat := Id.run do
     acc := (acc <<< 8) ||| b[i]!.toNat
   return acc
 
-/-- Decode a 48-byte big-endian integer as an `Fp`. Returns `none` if
-the integer is `≥ p`. -/
-def fromBytesBE (b : ByteArray) : Option Fp :=
-  if b.size ≠ 48 then none
+/-- Decode a 48-byte big-endian integer as an `Fp`. Throws if the input
+has the wrong size or the integer is `≥ p`. -/
+def fromBytesBE (b : ByteArray) : Except BlsError Fp :=
+  if b.size ≠ 48 then .error .nonCanonicalFieldElement
   else
     let n := bytesBEToNat b
-    if n < modulus then some ⟨n⟩ else none
+    if n < modulus then .ok ⟨n⟩ else .error .nonCanonicalFieldElement
 
 /-- Encode as 48 big-endian bytes. -/
 def toBytesBE (a : Fp) : ByteArray :=

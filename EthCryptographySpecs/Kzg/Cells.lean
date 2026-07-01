@@ -40,8 +40,8 @@ def cellToCosetEvals (cell : Cell) : Except KzgError CosetEvals := do
     let s := i * BYTES_PER_FIELD_ELEMENT
     let e := (i + 1) * BYTES_PER_FIELD_ELEMENT
     match bytesToBlsField (cell.extract s e) with
-    | some f => evals := evals.push f
-    | none   => throw (.invalidFieldElement (some i))
+    | .ok f    => evals := evals.push f
+    | .error _ => throw (.invalidFieldElement (some i))
   return evals
 
 /-- Convert a trusted `CosetEvals` back into an untrusted `Cell`. -/
@@ -324,8 +324,8 @@ def verifyCellKzgProofBatch
     let cb := commitmentsBytes[i]!
     -- Validate (also acts as `bytes_to_kzg_commitment`).
     let _ ← match bytesToKzgCommitment cb with
-            | some c => pure c
-            | none   => throw (.invalidCommitment (some i))
+            | .ok c    => pure c
+            | .error _ => throw (.invalidCommitment (some i))
     -- Find or append. We use a simple linear scan; the input list of
     -- commitments tends to be short relative to the cell list.
     let mut found : Option Nat := none
@@ -349,8 +349,8 @@ def verifyCellKzgProofBatch
   for i in [:proofsBytes.size] do
     let pb := proofsBytes[i]!
     match bytesToKzgProof pb with
-    | some p => proofs := proofs.push p
-    | none   => throw (.invalidProof (some i))
+    | .ok p    => proofs := proofs.push p
+    | .error _ => throw (.invalidProof (some i))
 
   verifyCellKzgProofBatchImpl deduped commitmentIndices cellIndices cosetsEvals proofs
 

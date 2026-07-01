@@ -162,19 +162,6 @@ def finalExpExponent : Nat :=
 /-- The BLS parameter `|x|`. -/
 def blsX : Nat := 0xD201000000010000
 
-/-- Optimal-ate pairing `e(P, Q) ∈ Fp12*`. -/
-def pairing (P : G1) (Q : G2) : Fp12 :=
-  let P12 := Embedded.ofG1 P
-  let Q12 := Embedded.ofG2 Q
-  let f := millerLoop blsX Q12 P12
-  -- BLS x is negative, so conjugate the Miller output.
-  let f := f.conjugate
-  finalExponentiation f
-
-/-- `e(P₁, Q₁) = e(P₂, Q₂)`. -/
-@[inline] def pairingEq (P₁ : G1) (Q₁ : G2) (P₂ : G1) (Q₂ : G2) : Bool :=
-  Fp12.beq (pairing P₁ Q₁) (pairing P₂ Q₂)
-
 /-- Returns `true` iff `∏ e(P_i, Q_i) = 1`. -/
 def pairingCheck (pairs : Array (G1 × G2)) : Bool := Id.run do
   let mut acc : Fp12 := Fp12.one

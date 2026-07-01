@@ -30,6 +30,10 @@ inductive BlsError where
   | pointAtInfinity
   /-- A point was not in the prime-order subgroup. -/
   | notInSubgroup
+  /-- Bytes did not represent a canonical field element (value ≥ modulus). -/
+  | nonCanonicalFieldElement
+  /-- A field element had no square root (not a quadratic residue). -/
+  | notASquare
 
 /-- Human-readable description, used at the C-ABI boundary. -/
 def BlsError.message : BlsError → String
@@ -41,6 +45,8 @@ def BlsError.message : BlsError → String
   | .invalidG2Point             => "invalid G2 point"
   | .pointAtInfinity            => "point at infinity"
   | .notInSubgroup              => "point not in subgroup"
+  | .nonCanonicalFieldElement   => "non-canonical field element"
+  | .notASquare                 => "not a square"
 
 /-- Run a fallible BLS computation down to `IO`, turning a `BlsError`
 into the `IO.userError` the C-ABI layer surfaces to callers. -/
