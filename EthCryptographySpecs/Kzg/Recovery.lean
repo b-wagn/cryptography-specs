@@ -5,6 +5,7 @@ import EthCryptographySpecs.Kzg.Polynomials
 import EthCryptographySpecs.Kzg.Fft
 import EthCryptographySpecs.Kzg.Cells
 import EthCryptographySpecs.Kzg.TrustedSetup
+import EthCryptographySpecs.Kzg.Errors
 
 /-!
 # `Recovery`
@@ -91,41 +92,39 @@ private def recoverPolynomialcoeff
 /-- Recover all cells and proofs from any 50%+ subset of a blob's cells. -/
 def recoverCellsAndKzgProofs
     (cellIndices : Array CellIndex) (cells : Array Cell)
-    : IO (Array Cell × Array KZGProof) := do
+    : KzgM (Array Cell × Array KZGProof) := do
 
   -- There must be an equal number of cells and indices.
   if cellIndices.size ≠ cells.size then
-    throw <| IO.userError "cell_indices/cells length mismatch"
+    throw .inputLengthMismatch
 
   -- At least 50% of cells must be provided.
   if cellIndices.size < CELLS_PER_EXT_BLOB / 2 then
-    throw <| IO.userError "not enough cells provided"
+    throw .notEnoughCells
 
   -- There must not be more cells than can exist in a single blob.
   if cellIndices.size > CELLS_PER_EXT_BLOB then
-    throw <| IO.userError "too many cells provided"
+    throw .tooManyCells
 
   -- Cell indices must be within bounds.
   for ci in cellIndices do
     if ci ≥ CELLS_PER_EXT_BLOB then
-      throw <| IO.userError "cell index out of bounds"
+      throw .cellIndexOutOfBounds
 
   -- Cell indices must be strictly ascending.
   for i in [1:cellIndices.size] do
     if cellIndices[i]! ≤ cellIndices[i-1]! then
-      throw <| IO.userError "indices not strictly ascending"
+      throw .indicesNotAscending
 
   -- Cells must be the correct size.
   for c in cells do
     if c.size ≠ BYTES_PER_CELL then
-      throw <| IO.userError "bad cell size"
+      throw (.badCellSize c.size)
 
   -- Convert cells to coset evaluations.
   let mut cosetsEvals : Array CosetEvals := Array.mkEmpty cells.size
   for c in cells do
-    match cellToCosetEvals c with
-    | some evals => cosetsEvals := cosetsEvals.push evals
-    | none       => throw <| IO.userError "invalid field element in cell"
+    cosetsEvals := cosetsEvals.push (← cellToCosetEvals c)
 
   let polyCoeff := recoverPolynomialcoeff cellIndices cosetsEvals
   computeCellsAndKzgProofsPolynomialcoeff polyCoeff

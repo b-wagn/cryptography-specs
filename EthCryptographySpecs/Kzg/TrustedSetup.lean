@@ -37,35 +37,33 @@ private def nibble (c : Char) : Option UInt8 :=
   else if 0x41 ≤ n ∧ n ≤ 0x46 then some (UInt8.ofNat (n - 0x37))
   else none
 
-private def hexToBytesAux : List Char → ByteArray → Option ByteArray
-  | [], acc => some acc
-  | [_], _ => none
+private def hexToBytesAux : List Char → ByteArray → ByteArray
+  | [], acc => acc
+  | [_], _ => panic! "invalid hex"
   | hi :: lo :: rest, acc =>
     match nibble hi, nibble lo with
     | some h, some l => hexToBytesAux rest (acc.push ((h <<< 4) ||| l))
-    | _, _ => none
+    | _, _ => panic! "invalid hex"
 
-private def hexToByteArray (s : String) : IO ByteArray := do
-  match hexToBytesAux s.toList ByteArray.empty with
-  | some b => pure b
-  | none   => throw <| IO.userError s!"invalid hex in embedded trusted setup: {s}"
+private def hexToByteArray (s : String) : ByteArray :=
+  hexToBytesAux s.toList ByteArray.empty
 
-private def buildEmbedded : IO TrustedSetup := do
-  let toG1 (b : ByteArray) : IO Bls.G1 := do
+private def buildEmbedded : TrustedSetup :=
+  let toG1 (b : ByteArray) : Bls.G1 :=
     match Bls.G1.uncompress b with
-    | some p => pure p
-    | none   => throw <| IO.userError "trusted setup contains invalid G1 point"
-  let toG2 (b : ByteArray) : IO Bls.G2 := do
+    | .ok p    => p
+    | .error _ => panic! "trusted setup contains invalid G1 point"
+  let toG2 (b : ByteArray) : Bls.G2 :=
     match Bls.G2.uncompress b with
-    | some p => pure p
-    | none   => throw <| IO.userError "trusted setup contains invalid G2 point"
-  let g1LagrangeBytes ← TrustedSetupData.g1LagrangeHex.mapM hexToByteArray
-  let g1MonomialBytes ← TrustedSetupData.g1MonomialHex.mapM hexToByteArray
-  let g2MonomialBytes ← TrustedSetupData.g2MonomialHex.mapM hexToByteArray
-  let g1Lagrange ← g1LagrangeBytes.mapM toG1
-  let g1Monomial ← g1MonomialBytes.mapM toG1
-  let g2Monomial ← g2MonomialBytes.mapM toG2
-  pure {
+    | .ok p    => p
+    | .error _ => panic! "trusted setup contains invalid G2 point"
+  let g1LagrangeBytes := TrustedSetupData.g1LagrangeHex.map hexToByteArray
+  let g1MonomialBytes := TrustedSetupData.g1MonomialHex.map hexToByteArray
+  let g2MonomialBytes := TrustedSetupData.g2MonomialHex.map hexToByteArray
+  let g1Lagrange := g1LagrangeBytes.map toG1
+  let g1Monomial := g1MonomialBytes.map toG1
+  let g2Monomial := g2MonomialBytes.map toG2
+  {
     g1Lagrange, g1LagrangeBytes,
     g1Monomial, g1MonomialBytes,
     g2Monomial, g2MonomialBytes,
@@ -76,8 +74,7 @@ private def buildEmbedded : IO TrustedSetup := do
 Seeded eagerly at module-init from the embedded bytes; callers never
 have to check whether the setup is loaded. -/
 
-initialize globalRef : IO.Ref TrustedSetup ← do
-  IO.mkRef (← buildEmbedded)
+initialize globalRef : IO.Ref TrustedSetup ← IO.mkRef buildEmbedded
 
 /-- Retrieve the loaded setup. -/
 @[inline] def get! : IO TrustedSetup := globalRef.get

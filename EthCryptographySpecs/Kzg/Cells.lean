@@ -5,6 +5,7 @@ import EthCryptographySpecs.Kzg.Polynomials
 import EthCryptographySpecs.Kzg.Fft
 import EthCryptographySpecs.Kzg.Core
 import EthCryptographySpecs.Kzg.TrustedSetup
+import EthCryptographySpecs.Kzg.Errors
 
 /-!
 # `Cells`
@@ -31,16 +32,17 @@ abbrev Coset            := Array Fr
 abbrev CosetEvals       := Array Fr
 
 /-- Convert an untrusted `Cell` into a trusted `CosetEvals`. -/
-def cellToCosetEvals (cell : Cell) : Option CosetEvals := Id.run do
-  if cell.size ≠ BYTES_PER_CELL then return none
+def cellToCosetEvals (cell : Cell) : Except KzgError CosetEvals := do
+  if cell.size ≠ BYTES_PER_CELL then
+    throw (.badCellSize cell.size)
   let mut evals : Array Fr := Array.mkEmpty FIELD_ELEMENTS_PER_CELL
   for i in [:FIELD_ELEMENTS_PER_CELL] do
     let s := i * BYTES_PER_FIELD_ELEMENT
     let e := (i + 1) * BYTES_PER_FIELD_ELEMENT
     match bytesToBlsField (cell.extract s e) with
     | some f => evals := evals.push f
-    | none   => return none
-  return some evals
+    | none   => throw (.invalidFieldElement (some i))
+  return evals
 
 /-- Convert a trusted `CosetEvals` back into an untrusted `Cell`. -/
 private def cosetEvalsToCell (cosetEvals : CosetEvals) : Cell := Id.run do
@@ -151,7 +153,7 @@ We commit to `Q(X) = f(X) / Z(X)` where `Z(X)` is the vanishing
 polynomial on `zs`. The `I(X)` numerator term vanishes at the
 monomial-form level because `deg(I) < deg(Z)`. -/
 private def computeKzgProofMultiImpl
-    (polynomialCoeff : PolynomialCoeff) (zs : Coset) : IO (KZGProof × CosetEvals) := do
+    (polynomialCoeff : PolynomialCoeff) (zs : Coset) : KzgM (KZGProof × CosetEvals) := do
   let setup ← TrustedSetup.get!
   let ys : CosetEvals := zs.map (evaluatePolynomialcoeff polynomialCoeff)
   let denominator := vanishingPolynomialcoeff zs
@@ -161,10 +163,10 @@ private def computeKzgProofMultiImpl
   return (proof, ys)
 
 /-- Reed-Solomon-extend `blob` and return its cells. -/
-def computeCells (blob : Blob) : IO (Array Cell) := do
+def computeCells (blob : Blob) : KzgM (Array Cell) := do
   if blob.size ≠ BYTES_PER_BLOB then
-    throw <| IO.userError "bad blob size"
-  let polynomial ← blobToPolynomialIO blob
+    throw (.badBlobSize blob.size)
+  let polynomial ← blobToPolynomial blob
   let polynomialCoeff := polynomialEvalToCoeff polynomial
   let mut cells : Array Cell := Array.mkEmpty CELLS_PER_EXT_BLOB
   for i in [:CELLS_PER_EXT_BLOB] do
@@ -175,7 +177,7 @@ def computeCells (blob : Blob) : IO (Array Cell) := do
 
 /-- Compute cells and proofs for a polynomial in coefficient form. -/
 def computeCellsAndKzgProofsPolynomialcoeff
-    (polynomialCoeff : PolynomialCoeff) : IO (Array Cell × Array KZGProof) := do
+    (polynomialCoeff : PolynomialCoeff) : KzgM (Array Cell × Array KZGProof) := do
   let mut cells  : Array Cell     := Array.mkEmpty CELLS_PER_EXT_BLOB
   let mut proofs : Array KZGProof := Array.mkEmpty CELLS_PER_EXT_BLOB
   for i in [:CELLS_PER_EXT_BLOB] do
@@ -188,10 +190,10 @@ def computeCellsAndKzgProofsPolynomialcoeff
 /-- Compute all cell proofs for an extended blob. Naive O(n²);
 optimal implementations use FK20. -/
 def computeCellsAndKzgProofs
-    (blob : Blob) : IO (Array Cell × Array KZGProof) := do
+    (blob : Blob) : KzgM (Array Cell × Array KZGProof) := do
   if blob.size ≠ BYTES_PER_BLOB then
-    throw <| IO.userError "bad blob size"
-  let polynomial ← blobToPolynomialIO blob
+    throw (.badBlobSize blob.size)
+  let polynomial ← blobToPolynomial blob
   let polynomialCoeff := polynomialEvalToCoeff polynomial
   computeCellsAndKzgProofsPolynomialcoeff polynomialCoeff
 
@@ -225,15 +227,15 @@ private def verifyCellKzgProofBatchImpl
     (commitmentIndices : Array CommitmentIndex)
     (cellIndices : Array CellIndex)
     (cosetsEvals : Array CosetEvals)
-    (proofs : Array KZGProof) : IO Bool := do
+    (proofs : Array KZGProof) : KzgM Bool := do
   -- Length and bounds checks.
   if !( commitmentIndices.size = cellIndices.size
      && cellIndices.size = cosetsEvals.size
      && cosetsEvals.size = proofs.size ) then
-    throw <| IO.userError "input length mismatch"
+    throw .inputLengthMismatch
   for ci in commitmentIndices do
     if ci ≥ commitments.size then
-      throw <| IO.userError "out-of-bounds commitment index"
+      throw .commitmentIndexOutOfBounds
 
   let setup ← TrustedSetup.get!
   let numCells := cellIndices.size
@@ -246,7 +248,7 @@ private def verifyCellKzgProofBatchImpl
   let rPowers := computePowers r numCells
 
   -- Step 2: LL = Σ_k r^k proofs[k].
-  let ll : G1 := (Bls.G1.uncompress (g1Lincomb proofs rPowers)).get!
+  let ll : G1 := (Bls.G1.uncompress (g1Lincomb proofs rPowers)).toOption.get!
 
   -- Step 3: LR = [s^n].
   let lr : G2 := setup.g2Monomial[n]!
@@ -259,7 +261,7 @@ private def verifyCellKzgProofBatchImpl
     weights := weights.set! i (weights[i]! + rPowers[k]!)
 
   -- Step 4.1b: RLC = Σ_i weights[i] commitments[i].
-  let rlc : G1 := (Bls.G1.uncompress (g1Lincomb commitments weights)).get!
+  let rlc : G1 := (Bls.G1.uncompress (g1Lincomb commitments weights)).toOption.get!
 
   -- Step 4.2: RLI = [Σ_k r^k I_k(s)].
   let mut sumInterp : PolynomialCoeff :=
@@ -269,7 +271,7 @@ private def verifyCellKzgProofBatchImpl
     let scaled := multiplyPolynomialcoeff #[rPowers[k]!] interp
     sumInterp := addPolynomialcoeff sumInterp scaled
   let rli : G1 := (Bls.G1.uncompress
-                  (g1Lincomb (setup.g1MonomialBytes.extract 0 n) sumInterp)).get!
+                  (g1Lincomb (setup.g1MonomialBytes.extract 0 n) sumInterp)).toOption.get!
 
   -- Step 4.3: RLP = Σ_k (r^k * h_k^n) proofs[k].
   let mut weightedRPowers : Array Fr := Array.mkEmpty numCells
@@ -277,7 +279,7 @@ private def verifyCellKzgProofBatchImpl
     let h_k := cosetShiftForCell cellIndices[k]!
     let h_k_pow := h_k ^ (Fr.ofNat n)
     weightedRPowers := weightedRPowers.push (rPowers[k]! * h_k_pow)
-  let rlp : G1 := (Bls.G1.uncompress (g1Lincomb proofs weightedRPowers)).get!
+  let rlp : G1 := (Bls.G1.uncompress (g1Lincomb proofs weightedRPowers)).toOption.get!
 
   -- Step 4.4: RL = RLC - RLI + RLP.
   let rl : G1 := Bls.G1.add (Bls.G1.add rlc (Bls.G1.neg rli)) rlp
@@ -295,34 +297,35 @@ def verifyCellKzgProofBatch
     (commitmentsBytes : Array Bytes48)
     (cellIndices : Array CellIndex)
     (cells : Array Cell)
-    (proofsBytes : Array Bytes48) : IO Bool := do
+    (proofsBytes : Array Bytes48) : KzgM Bool := do
 
   if !( commitmentsBytes.size = cells.size
      && cells.size = proofsBytes.size
      && proofsBytes.size = cellIndices.size ) then
-    throw <| IO.userError "input length mismatch"
+    throw .inputLengthMismatch
 
   for cb in commitmentsBytes do
     if cb.size ≠ BYTES_PER_COMMITMENT then
-      throw <| IO.userError "bad commitment size"
+      throw (.badCommitmentSize cb.size)
   for ci in cellIndices do
     if ci ≥ CELLS_PER_EXT_BLOB then
-      throw <| IO.userError "cell index out of bounds"
+      throw .cellIndexOutOfBounds
   for c in cells do
     if c.size ≠ BYTES_PER_CELL then
-      throw <| IO.userError "bad cell size"
+      throw (.badCellSize c.size)
   for pb in proofsBytes do
     if pb.size ≠ BYTES_PER_PROOF then
-      throw <| IO.userError "bad proof size"
+      throw (.badProofSize pb.size)
 
   -- Deduplicate commitments while preserving the index of first occurrence.
   let mut deduped : Array KZGCommitment := Array.empty
   let mut commitmentIndices : Array CommitmentIndex := Array.empty
-  for cb in commitmentsBytes do
+  for i in [:commitmentsBytes.size] do
+    let cb := commitmentsBytes[i]!
     -- Validate (also acts as `bytes_to_kzg_commitment`).
     let _ ← match bytesToKzgCommitment cb with
             | some c => pure c
-            | none   => throw <| IO.userError "invalid commitment"
+            | none   => throw (.invalidCommitment (some i))
     -- Find or append. We use a simple linear scan; the input list of
     -- commitments tends to be short relative to the cell list.
     let mut found : Option Nat := none
@@ -339,16 +342,15 @@ def verifyCellKzgProofBatch
   -- Convert cells to coset evaluations.
   let mut cosetsEvals : Array CosetEvals := Array.mkEmpty cells.size
   for c in cells do
-    match cellToCosetEvals c with
-    | some evals => cosetsEvals := cosetsEvals.push evals
-    | none       => throw <| IO.userError "invalid cell field element"
+    cosetsEvals := cosetsEvals.push (← cellToCosetEvals c)
 
   -- Validate proofs.
   let mut proofs : Array KZGProof := Array.mkEmpty proofsBytes.size
-  for pb in proofsBytes do
+  for i in [:proofsBytes.size] do
+    let pb := proofsBytes[i]!
     match bytesToKzgProof pb with
     | some p => proofs := proofs.push p
-    | none   => throw <| IO.userError "invalid proof"
+    | none   => throw (.invalidProof (some i))
 
   verifyCellKzgProofBatchImpl deduped commitmentIndices cellIndices cosetsEvals proofs
 

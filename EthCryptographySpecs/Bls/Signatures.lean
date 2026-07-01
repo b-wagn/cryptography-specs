@@ -1,5 +1,6 @@
 import EthCryptographySpecs.Bls.HashToCurve
 import EthCryptographySpecs.Bls.Pairing
+import EthCryptographySpecs.Bls.Errors
 
 /-!
 # `Signatures`
@@ -31,15 +32,15 @@ private def signatureSubgroupCheck (sig : G2) : Bool := G2.inSubgroup sig
 private def coreVerify
     (pkBytes : ByteArray) (msg : ByteArray) (sigBytes : ByteArray) : Bool :=
   -- Validate pubkey (subgroup, on-curve, not infinity).
-  if pkBytes.size ≠ 48 || !G1.keyValidate pkBytes then false
+  if pkBytes.size ≠ 48 || !(G1.keyValidate pkBytes).isOk then false
   else match G1.uncompress pkBytes with
-  | none => false
-  | some pk =>
+  | .error _ => false
+  | .ok pk =>
     -- Validate signature: decompress, on-curve (implicit), in subgroup.
     if sigBytes.size ≠ 96 then false
     else match G2.uncompress sigBytes with
-    | none => false
-    | some sig =>
+    | .error _ => false
+    | .ok sig =>
       if !signatureSubgroupCheck sig then false
       else
         let q := HashToCurve.hashToG2 msg DST
@@ -55,29 +56,30 @@ def fastAggregateVerify
   if pubkeys.isEmpty then return false
   let mut agg : G1 := G1.zero
   for pk in pubkeys do
-    if pk.size ≠ 48 || !G1.keyValidate pk then return false
+    if pk.size ≠ 48 || !(G1.keyValidate pk).isOk then return false
     match G1.uncompress pk with
-    | none => return false
-    | some p => agg := G1.add agg p
+    | .error _ => return false
+    | .ok p => agg := G1.add agg p
   let aggBytes := G1.compress agg
   return coreVerify aggBytes msg sigBytes
 
 /-! ## Ethereum wrappers -/
 
 /-- `eth_aggregate_pubkeys` — sum compressed G1 pubkeys after `KeyValidate`.
-Throws on an empty list or any invalid pubkey. -/
-def ethAggregatePubkeys (pubkeys : Array ByteArray) : IO ByteArray := do
+Fails with a `BlsError` on an empty list or any invalid pubkey. -/
+def ethAggregatePubkeys (pubkeys : Array ByteArray) : Except BlsError ByteArray := do
   if pubkeys.isEmpty then
-    throw <| IO.userError "empty pubkey list"
+    throw .emptyPubkeyList
   let mut agg : G1 := G1.zero
-  for pk in pubkeys do
+  for i in [:pubkeys.size] do
+    let pk := pubkeys[i]!
     if pk.size ≠ 48 then
-      throw <| IO.userError "bad pubkey size"
-    if !G1.keyValidate pk then
-      throw <| IO.userError "invalid pubkey"
+      throw (.badPubkeySize pk.size)
+    if !(G1.keyValidate pk).isOk then
+      throw (.invalidPubkey (some i))
     match G1.uncompress pk with
-    | none => throw <| IO.userError "pubkey decompression failed"
-    | some p => agg := G1.add agg p
+    | .error _ => throw (.invalidPubkey (some i))
+    | .ok p => agg := G1.add agg p
   return G1.compress agg
 
 /-- `eth_fast_aggregate_verify` — Ethereum's special-cased FastAggregateVerify.

@@ -5,6 +5,7 @@ import EthCryptographySpecs.Kzg.Core
 import EthCryptographySpecs.Kzg.Cells
 import EthCryptographySpecs.Kzg.Recovery
 import EthCryptographySpecs.Kzg.TrustedSetup
+import EthCryptographySpecs.Kzg.Errors
 
 /-!
 # `Exports`
@@ -43,7 +44,7 @@ private def unpackIndicesBE (b : ByteArray) : Array Nat := Id.run do
 
 @[export eth_kzg_blob_to_kzg_commitment]
 def blobToKzgCommitmentExport (blob : @& ByteArray) : IO ByteArray :=
-  blobToKzgCommitment blob
+  runKzg (blobToKzgCommitment blob)
 
 @[export eth_kzg_compute_challenge]
 def computeChallengeExport
@@ -54,26 +55,26 @@ def computeChallengeExport
 @[export eth_kzg_compute_kzg_proof]
 def computeKzgProofExport
     (blob : @& ByteArray) (z : @& ByteArray) : IO ByteArray := do
-  let (proof, y) ← computeKzgProof blob z
+  let (proof, y) ← runKzg (computeKzgProof blob z)
   return proof ++ y
 
 @[export eth_kzg_verify_kzg_proof]
 def verifyKzgProofExport
     (commitment : @& ByteArray) (z : @& ByteArray)
     (y : @& ByteArray) (proof : @& ByteArray) : IO UInt8 := do
-  let ok ← verifyKzgProof commitment z y proof
+  let ok ← runKzg (verifyKzgProof commitment z y proof)
   return if ok then 1 else 0
 
 @[export eth_kzg_compute_blob_kzg_proof]
 def computeBlobKzgProofExport
     (blob : @& ByteArray) (commitment : @& ByteArray) : IO ByteArray :=
-  computeBlobKzgProof blob commitment
+  runKzg (computeBlobKzgProof blob commitment)
 
 @[export eth_kzg_verify_blob_kzg_proof]
 def verifyBlobKzgProofExport
     (blob : @& ByteArray) (commitment : @& ByteArray) (proof : @& ByteArray)
     : IO UInt8 := do
-  let ok ← verifyBlobKzgProof blob commitment proof
+  let ok ← runKzg (verifyBlobKzgProof blob commitment proof)
   return if ok then 1 else 0
 
 @[export eth_kzg_verify_blob_kzg_proof_batch]
@@ -81,12 +82,12 @@ def verifyBlobKzgProofBatchExport
     (blobs : @& Array ByteArray)
     (commitments : @& Array ByteArray)
     (proofs : @& Array ByteArray) : IO UInt8 := do
-  let ok ← verifyBlobKzgProofBatch blobs commitments proofs
+  let ok ← runKzg (verifyBlobKzgProofBatch blobs commitments proofs)
   return if ok then 1 else 0
 
 @[export eth_kzg_compute_cells]
 def computeCellsExport (blob : @& ByteArray) : IO ByteArray := do
-  let cells ← computeCells blob
+  let cells ← runKzg (computeCells blob)
   return cells.foldl (· ++ ·) ByteArray.empty
 
 @[export eth_kzg_compute_verify_cell_kzg_proof_batch_challenge]
@@ -101,15 +102,15 @@ def computeVerifyCellKzgProofBatchChallengeExport
   let mut evals : Array CosetEvals := Array.mkEmpty cosetsEvals.size
   for ce in cosetsEvals do
     match cellToCosetEvals ce with
-    | some e => evals := evals.push e
-    | none   => throw <| IO.userError "cosets_evals contains invalid field element"
+    | .ok e    => evals := evals.push e
+    | .error err => throw <| IO.userError err.message
   pure <| blsFieldToBytes
     (computeVerifyCellKzgProofBatchChallenge
       commitments commitmentIndices cellIndices evals proofs)
 
 @[export eth_kzg_compute_cells_and_kzg_proofs]
 def computeCellsAndKzgProofsExport (blob : @& ByteArray) : IO ByteArray := do
-  let (cells, proofs) ← computeCellsAndKzgProofs blob
+  let (cells, proofs) ← runKzg (computeCellsAndKzgProofs blob)
   let cellsBuf  := cells.foldl  (· ++ ·) ByteArray.empty
   let proofsBuf := proofs.foldl (· ++ ·) ByteArray.empty
   return cellsBuf ++ proofsBuf
@@ -121,14 +122,14 @@ def verifyCellKzgProofBatchExport
     (cells : @& Array ByteArray)
     (proofs : @& Array ByteArray) : IO UInt8 := do
   let cellIndices := unpackIndicesBE cellIndicesBE
-  let ok ← verifyCellKzgProofBatch commitments cellIndices cells proofs
+  let ok ← runKzg (verifyCellKzgProofBatch commitments cellIndices cells proofs)
   return if ok then 1 else 0
 
 @[export eth_kzg_recover_cells_and_kzg_proofs]
 def recoverCellsAndKzgProofsExport
     (cellIndicesBE : @& ByteArray) (cells : @& Array ByteArray) : IO ByteArray := do
   let cellIndices := unpackIndicesBE cellIndicesBE
-  let (cells', proofs') ← recoverCellsAndKzgProofs cellIndices cells
+  let (cells', proofs') ← runKzg (recoverCellsAndKzgProofs cellIndices cells)
   let cellsBuf  := cells'.foldl  (· ++ ·) ByteArray.empty
   let proofsBuf := proofs'.foldl (· ++ ·) ByteArray.empty
   return cellsBuf ++ proofsBuf

@@ -1,5 +1,6 @@
 import EthCryptographySpecs.Bls.G1
 import EthCryptographySpecs.Bls.G2
+import EthCryptographySpecs.Bls.Errors
 
 /-!
 # `Compress`
@@ -96,34 +97,34 @@ def compress (p : G1) : ByteArray := Id.run do
     bytes := bytes.set! 0 ((bytes.get! 0) ||| 0x20)
   return bytes
 
-/-- Decompress 48 bytes into a `G1` point, or `none` for malformed
-inputs or non-curve points. -/
-def uncompress (bytes : ByteArray) : Option G1 :=
-  if bytes.size ≠ 48 then none
+/-- Decompress 48 bytes into a `G1` point, failing with `invalidG1Point`
+for malformed inputs or non-curve points. -/
+def uncompress (bytes : ByteArray) : Except BlsError G1 :=
+  if bytes.size ≠ 48 then .error .invalidG1Point
   else
     let head := bytes.get! 0
     let isCompressed := (head &&& 0x80) ≠ 0
     let isInfinity   := (head &&& 0x40) ≠ 0
     let ySign        := (head &&& 0x20) ≠ 0
-    if !isCompressed then none
+    if !isCompressed then .error .invalidG1Point
     else if isInfinity then
       -- Infinity must use the canonical encoding `0xc0` + 47 zero bytes
       -- and the y-sign flag must be cleared.
-      if ySign || head ≠ 0xc0 || !tailAllZero bytes 1 then none
-      else some G1.zero
+      if ySign || head ≠ 0xc0 || !tailAllZero bytes 1 then .error .invalidG1Point
+      else .ok G1.zero
     else
       -- Strip flag bits from the high byte before decoding `x`.
       let xBytes := bytes.set! 0 (head &&& 0x1f)
       match Fp.fromBytesBE xBytes with
-      | none => none
+      | none => .error .invalidG1Point
       | some x =>
         -- Compute y² = x³ + 4 and take a sqrt.
         let rhs := x * x * x + Fp.ofNat 4
         match Fp.sqrt rhs with
-        | none => none
+        | none => .error .invalidG1Point
         | some yPos =>
           let y := if Fp.signBit yPos = ySign then yPos else -yPos
-          some ⟨x, y, Fp.one⟩
+          .ok ⟨x, y, Fp.one⟩
 
 /-- Subgroup-membership check via `[r]·P = O`. -/
 def inSubgroup (p : G1) : Bool :=
@@ -132,10 +133,10 @@ def inSubgroup (p : G1) : Bool :=
 /-- Decompress + curve check + subgroup check. Rejects the point at
 infinity per the IRTF BLS draft (§2.5); KZG's `validateKzgG1` wraps
 this with an explicit infinity-allow. -/
-def keyValidate (bytes : ByteArray) : Bool :=
-  match uncompress bytes with
-  | none   => false
-  | some p => !p.isInfinity && inSubgroup p
+def keyValidate (bytes : ByteArray) : Except BlsError Unit := do
+  let p ← uncompress bytes
+  if p.isInfinity then throw .pointAtInfinity
+  if !inSubgroup p then throw .notInSubgroup
 
 end G1
 
@@ -161,19 +162,19 @@ def compress (p : G2) : ByteArray := Id.run do
     bytes := bytes.set! 0 ((bytes.get! 0) ||| 0x20)
   return bytes
 
-/-- Decompress 96 bytes into a `G2` point, or `none` for malformed
-inputs or non-curve points. -/
-def uncompress (bytes : ByteArray) : Option G2 :=
-  if bytes.size ≠ 96 then none
+/-- Decompress 96 bytes into a `G2` point, failing with `invalidG2Point`
+for malformed inputs or non-curve points. -/
+def uncompress (bytes : ByteArray) : Except BlsError G2 :=
+  if bytes.size ≠ 96 then .error .invalidG2Point
   else
     let head := bytes.get! 0
     let isCompressed := (head &&& 0x80) ≠ 0
     let isInfinity   := (head &&& 0x40) ≠ 0
     let ySign        := (head &&& 0x20) ≠ 0
-    if !isCompressed then none
+    if !isCompressed then .error .invalidG2Point
     else if isInfinity then
-      if ySign || head ≠ 0xc0 || !tailAllZero bytes 1 then none
-      else some G2.zero
+      if ySign || head ≠ 0xc0 || !tailAllZero bytes 1 then .error .invalidG2Point
+      else .ok G2.zero
     else
       let cleared := bytes.set! 0 (head &&& 0x1f)
       let c1Bytes := cleared.extract 0 48
@@ -183,12 +184,12 @@ def uncompress (bytes : ByteArray) : Option G2 :=
         let x : Fp2 := ⟨c0, c1⟩
         let rhs := x * x * x + bTwist
         match Fp2.sqrt rhs with
-        | none => none
+        | none => .error .invalidG2Point
         | some yPos =>
           let yNeg := -yPos
           let y := if Fp2.signBit yPos = ySign then yPos else yNeg
-          some ⟨x, y, Fp2.one⟩
-      | _, _ => none
+          .ok ⟨x, y, Fp2.one⟩
+      | _, _ => .error .invalidG2Point
 
 /-- Subgroup-membership check via `[r]·P = O`. -/
 def inSubgroup (p : G2) : Bool :=

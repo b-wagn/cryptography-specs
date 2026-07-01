@@ -1,6 +1,7 @@
 import EthCryptographySpecs.Bls
 import EthCryptographySpecs.Kzg.Constants
 import EthCryptographySpecs.Kzg.BitReversal
+import EthCryptographySpecs.Kzg.Errors
 
 /-!
 # `Polynomials`
@@ -93,24 +94,20 @@ def computeRootsOfUnity (order : Nat) : Array Fr :=
 
 /-! ## Blob <-> Polynomial -/
 
-/-- Convert a blob to a sequence of `Fr` field elements. Returns `none`
-if any 32-byte chunk represents a value `≥ BLS_MODULUS`. -/
-private def blobToPolynomial (blob : Blob) : Option Polynomial := Id.run do
-  if blob.size ≠ BYTES_PER_BLOB then return none
+/-- Convert a blob to a sequence of `Fr` field elements. Throws if the
+blob is the wrong size or any 32-byte chunk represents a value
+`≥ BLS_MODULUS`. -/
+def blobToPolynomial (blob : Blob) : Except KzgError Polynomial := do
+  if blob.size ≠ BYTES_PER_BLOB then
+    throw (.badBlobSize blob.size)
   let mut poly : Array Fr := Array.mkEmpty FIELD_ELEMENTS_PER_BLOB
   for i in [:FIELD_ELEMENTS_PER_BLOB] do
     let start := i * BYTES_PER_FIELD_ELEMENT
     let stop  := (i + 1) * BYTES_PER_FIELD_ELEMENT
     match bytesToBlsField (blob.extract start stop) with
     | some f => poly := poly.push f
-    | none   => return none
-  return some poly
-
-/-- `IO`-friendly `blobToPolynomial` that throws on invalid input. -/
-def blobToPolynomialIO (blob : Blob) : IO Polynomial := do
-  match blobToPolynomial blob with
-  | some p => pure p
-  | none   => throw <| IO.userError "blob contains a non-canonical field element"
+    | none   => throw (.invalidFieldElement (some i))
+  return poly
 
 /-! ## Evaluating a polynomial in evaluation form -/
 

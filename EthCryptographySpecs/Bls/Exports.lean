@@ -1,4 +1,5 @@
 import EthCryptographySpecs.Bls.Signatures
+import EthCryptographySpecs.Bls.Errors
 
 /-!
 # `Bls.Exports`
@@ -15,7 +16,7 @@ open EthCryptographySpecs.Bls.Signatures
 @[export eth_bls_aggregate_pubkeys]
 def ethAggregatePubkeysExport
     (pubkeys : @& Array ByteArray) : IO ByteArray :=
-  ethAggregatePubkeys pubkeys
+  runBls (ethAggregatePubkeys pubkeys)
 
 @[export eth_bls_fast_aggregate_verify]
 def ethFastAggregateVerifyExport
