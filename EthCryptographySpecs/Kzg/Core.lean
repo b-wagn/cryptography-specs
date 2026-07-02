@@ -53,12 +53,13 @@ def computeChallenge (blob : Blob) (commitment : KZGCommitment) : Fr :=
 
 /-- BLS multi-scalar multiplication in G1, on compressed-point inputs. -/
 def g1Lincomb
-    (points : Array KZGCommitment) (scalars : Array Fr) : KZGCommitment :=
+    (points : Array KZGCommitment) (scalars : Array Fr) : KzgM KZGCommitment := do
+  if points.size ≠ scalars.size then
+    throw (.lincombLengthMismatch points.size scalars.size)
   if points.size = 0 then
-    Bls.G1.compress Bls.G1.zero
-  else
-    let pointsG1 := points.map (fun p => (Bls.G1.uncompress p).toOption.get!)
-    Bls.G1.compress (Bls.G1.msm pointsG1 scalars)
+    return Bls.G1.compress Bls.G1.zero
+  let pointsG1 := points.map (fun p => (Bls.G1.uncompress p).toOption.get!)
+  return Bls.G1.compress (Bls.G1.msm pointsG1 scalars)
 
 /-- Given `y == p(z)`, compute `q(z)` for the KZG quotient polynomial,
 handling the special case where `z` is in the roots of unity. -/
@@ -104,7 +105,7 @@ private def computeKzgProofImpl
         q := q.push (a / b)
     return q
 
-  let proof := g1Lincomb g1LagrangeBrp quotient
+  let proof ← g1Lincomb g1LagrangeBrp quotient
   return (proof, y)
 
 /-- Compute a KZG proof at `z` for the polynomial represented by `blob`.
@@ -174,17 +175,17 @@ private def verifyKzgProofBatch
   let rPowers := computePowers r commitments.size
 
   -- proof_lincomb = Σ_i r^i · proof_i
-  let proofLincomb := g1Lincomb proofs rPowers
+  let proofLincomb ← g1Lincomb proofs rPowers
   -- proof_z_lincomb = Σ_i (z_i · r^i) · proof_i
   let zRPowers := Array.ofFn (n := zs.size) fun i => zs[i.val]! * rPowers[i.val]!
-  let proofZLincomb := g1Lincomb proofs zRPowers
+  let proofZLincomb ← g1Lincomb proofs zRPowers
 
   -- C_minus_ys[i] = commitment_i - [y_i]
   let cMinusYs : Array G1 := Array.ofFn (n := commitments.size) fun i =>
     Bls.G1.add ((Bls.G1.uncompress commitments[i.val]!).toOption.get!)
                (Bls.G1.mul Bls.G1.generator (-ys[i.val]!))
   let cMinusYBytes := cMinusYs.map Bls.G1.compress
-  let cMinusYLincomb := g1Lincomb cMinusYBytes rPowers
+  let cMinusYLincomb ← g1Lincomb cMinusYBytes rPowers
 
   let s := setup.g2Monomial[1]!
   let pairs : Array (G1 × G2) := #[
@@ -202,7 +203,7 @@ def blobToKzgCommitment (blob : Blob) : KzgM KZGCommitment := do
   let setup ← TrustedSetup.get!
   let polynomial ← blobToPolynomial blob
   let lagrangeBrp := bitReversalPermutation setup.g1LagrangeBytes
-  return g1Lincomb lagrangeBrp polynomial
+  g1Lincomb lagrangeBrp polynomial
 
 /-- Compute the KZG proof verifying `blob` against `commitment`. Does
 not check that `commitment` is correct for `blob`. -/

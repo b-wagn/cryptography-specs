@@ -36,6 +36,8 @@ inductive KzgError where
   | invalidFieldElement (index : Option Nat)
   /-- Input arrays had mismatched lengths. -/
   | inputLengthMismatch
+  /-- A G1 linear combination got different point and scalar counts. -/
+  | lincombLengthMismatch (points scalars : Nat)
   /-- A commitment index referenced a commitment that does not exist. -/
   | commitmentIndexOutOfBounds
   /-- A cell index was `≥ CELLS_PER_EXT_BLOB`. -/
@@ -61,6 +63,8 @@ def KzgError.message : KzgError → String
   | .invalidFieldElement (some index) => s!"invalid field element at index {index}"
   | .invalidFieldElement none         => "invalid field element"
   | .inputLengthMismatch        => "input length mismatch"
+  | .lincombLengthMismatch points scalars =>
+      s!"linear combination length mismatch: {points} points, {scalars} scalars"
   | .commitmentIndexOutOfBounds => "out-of-bounds commitment index"
   | .cellIndexOutOfBounds       => "cell index out of bounds"
   | .indicesNotAscending        => "indices not strictly ascending"
