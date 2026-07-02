@@ -14,21 +14,21 @@ open EthCryptographySpecs.Bls (Fr)
 
 open EthCryptographySpecs.Kzg.Constants
 
+/-- Every other element of `xs`, starting at index `start`. -/
+private def _fftHalve (xs : Array Fr) (start : Nat) : Array Fr :=
+  Array.ofFn (n := xs.size / 2) fun i => xs[start + 2 * i.val]!
+
 /-- Cooley-Tukey radix-2 forward FFT. `rootsOfUnity` must have the same
 length as `vals`. -/
-private partial def _fftField
+private def _fftField
     (vals : Array Fr) (rootsOfUnity : Array Fr)
     : Array Fr :=
   if vals.size ≤ 1 then
     vals
   else
-    let halve (xs : Array Fr) (start : Nat) :=
-      Array.ofFn (n := xs.size / 2) fun i => xs[start + 2 * i.val]!
-    let evens := halve vals 0
-    let odds  := halve vals 1
-    let halfRoots := halve rootsOfUnity 0
-    let l := _fftField evens halfRoots
-    let r := _fftField odds  halfRoots
+    let halfRoots := _fftHalve rootsOfUnity 0
+    let l := _fftField (_fftHalve vals 0) halfRoots
+    let r := _fftField (_fftHalve vals 1) halfRoots
     let n := vals.size
     let halfL := l.size  -- = n / 2
     -- Butterfly: for each `i ∈ [0, n/2)` let `t = r[i] * rootsOfUnity[i]`,
@@ -41,6 +41,8 @@ private partial def _fftField
       let yTimesRoot  := rAt * rootsOfUnity[baseIdx]!
       if i.val < halfL then lAt + yTimesRoot
       else                  lAt - yTimesRoot
+termination_by vals.size
+decreasing_by all_goals (simp [_fftHalve]; omega)
 
 /-- Forward (`inv = false`) or inverse FFT (`inv = true`) over `vals`.
 The inverse reverses the roots of unity and divides each output by

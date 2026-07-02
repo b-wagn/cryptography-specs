@@ -45,11 +45,13 @@ instance : Neg Fr := ⟨neg⟩
 @[inline] def isZero (a : Fr) : Bool := a.val == 0
 
 /-- Square-and-multiply modular exponentiation. -/
-partial def powNat (base : Fr) (e : Nat) : Fr :=
+def powNat (base : Fr) (e : Nat) : Fr :=
   if e = 0 then one
   else
     let half := powNat (base * base) (e / 2)
     if e % 2 = 1 then base * half else half
+termination_by e
+decreasing_by omega
 
 /-- Multiplicative inverse via Fermat's little theorem. -/
 @[inline] def inverse (a : Fr) : Fr := powNat a (modulus - 2)
