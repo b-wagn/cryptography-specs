@@ -58,15 +58,17 @@ def fftField
   else
     _fftField vals rootsOfUnity
 
+/-- Multiply successive elements of `vals` by successive powers of
+`factor`, starting at `shift`. -/
+private def shiftValsAux (factor : Fr) : Fr → List Fr → List Fr
+  | _, [] => []
+  | shift, v :: rest => (v * shift) :: shiftValsAux factor (shift * factor) rest
+
+/-- Multiply `vals[i]` by `factor ^ i`, shifting the values onto a coset. -/
 private def shiftVals
     (vals : Array Fr) (factor : Fr)
-    : Array Fr := Id.run do
-  let mut shift : Fr := Fr.one
-  let mut out : Array Fr := Array.mkEmpty vals.size
-  for v in vals do
-    out := out.push (v * shift)
-    shift := shift * factor
-  return out
+    : Array Fr :=
+  (shiftValsAux factor Fr.one vals.toList).toArray
 
 /-- FFT/IFFT over a coset of the roots of unity. Useful for dividing by
 a polynomial that vanishes on the unshifted domain. -/
