@@ -9,22 +9,19 @@
 
 extern lean_object*
 eth_kzg_blob_to_kzg_commitment(
-  lean_object* blob,
-  lean_object* world
+  lean_object* blob
 );
 
 extern lean_object*
 eth_kzg_compute_challenge(
   lean_object* blob,
-  lean_object* commitment,
-  lean_object* world
+  lean_object* commitment
 );
 
 extern lean_object*
 eth_kzg_compute_kzg_proof(
   lean_object* blob,
-  lean_object* z,
-  lean_object* world
+  lean_object* z
 );
 
 extern lean_object*
@@ -32,43 +29,37 @@ eth_kzg_verify_kzg_proof(
   lean_object* c,
   lean_object* z,
   lean_object* y,
-  lean_object* p,
-  lean_object* world
+  lean_object* p
 );
 
 extern lean_object*
 eth_kzg_compute_blob_kzg_proof(
   lean_object* blob,
-  lean_object* c,
-  lean_object* world
+  lean_object* c
 );
 
 extern lean_object*
 eth_kzg_verify_blob_kzg_proof(
   lean_object* blob,
   lean_object* c,
-  lean_object* p,
-  lean_object* world
+  lean_object* p
 );
 
 extern lean_object*
 eth_kzg_verify_blob_kzg_proof_batch(
   lean_object* blobs,
   lean_object* cs,
-  lean_object* ps,
-  lean_object* world
+  lean_object* ps
 );
 
 extern lean_object*
 eth_kzg_compute_cells(
-  lean_object* blob,
-  lean_object* world
+  lean_object* blob
 );
 
 extern lean_object*
 eth_kzg_compute_cells_and_kzg_proofs(
-  lean_object* blob,
-  lean_object* world
+  lean_object* blob
 );
 
 extern lean_object*
@@ -77,8 +68,7 @@ eth_kzg_compute_verify_cell_kzg_proof_batch_challenge(
   lean_object* commitment_indices_be,
   lean_object* cell_indices_be,
   lean_object* cosets_evals,
-  lean_object* proofs,
-  lean_object* world
+  lean_object* proofs
 );
 
 extern lean_object*
@@ -86,15 +76,13 @@ eth_kzg_verify_cell_kzg_proof_batch(
   lean_object* cs,
   lean_object* idx,
   lean_object* cells,
-  lean_object* ps,
-  lean_object* world
+  lean_object* ps
 );
 
 extern lean_object*
 eth_kzg_recover_cells_and_kzg_proofs(
   lean_object* idx,
-  lean_object* cells,
-  lean_object* world
+  lean_object* cells
 );
 
 /* ---- Local helpers (KZG-only) ---------------------------------------- */
@@ -155,7 +143,7 @@ py_blob_to_kzg_commitment(
   if (!blob) return NULL;
   uint8_t out[BYTES_PER_COMMITMENT];
   lean_object* res = eth_kzg_blob_to_kzg_commitment(
-    mk_bytearray(blob, BYTES_PER_BLOB), lean_io_mk_world());
+    mk_bytearray(blob, BYTES_PER_BLOB));
   if (run_io_into_bytearray(res, out, BYTES_PER_COMMITMENT)) {
     PyErr_SetString(PyExc_RuntimeError, "blob_to_kzg_commitment failed");
     return NULL;
@@ -177,8 +165,7 @@ py_compute_challenge(
   uint8_t out[BYTES_PER_FIELD_ELEMENT];
   lean_object* res = eth_kzg_compute_challenge(
     mk_bytearray(blob, BYTES_PER_BLOB),
-    mk_bytearray(com, BYTES_PER_COMMITMENT),
-    lean_io_mk_world());
+    mk_bytearray(com, BYTES_PER_COMMITMENT));
   if (run_io_into_bytearray(res, out, BYTES_PER_FIELD_ELEMENT)) {
     PyErr_SetString(PyExc_RuntimeError, "compute_challenge failed");
     return NULL;
@@ -200,8 +187,7 @@ py_compute_kzg_proof(
   uint8_t buf[BYTES_PER_PROOF + BYTES_PER_FIELD_ELEMENT];
   lean_object* res = eth_kzg_compute_kzg_proof(
     mk_bytearray(blob, BYTES_PER_BLOB),
-    mk_bytearray(z, BYTES_PER_FIELD_ELEMENT),
-    lean_io_mk_world());
+    mk_bytearray(z, BYTES_PER_FIELD_ELEMENT));
   if (run_io_into_bytearray(res, buf, sizeof(buf))) {
     PyErr_SetString(PyExc_RuntimeError, "compute_kzg_proof failed");
     return NULL;
@@ -234,8 +220,7 @@ py_verify_kzg_proof(
     mk_bytearray(c, BYTES_PER_COMMITMENT),
     mk_bytearray(z, BYTES_PER_FIELD_ELEMENT),
     mk_bytearray(y, BYTES_PER_FIELD_ELEMENT),
-    mk_bytearray(p, BYTES_PER_PROOF),
-    lean_io_mk_world());
+    mk_bytearray(p, BYTES_PER_PROOF));
   if (run_io_into_bool(res, &ok)) {
     PyErr_SetString(PyExc_RuntimeError, "verify_kzg_proof failed");
     return NULL;
@@ -257,8 +242,7 @@ py_compute_blob_kzg_proof(
   uint8_t out[BYTES_PER_PROOF];
   lean_object* res = eth_kzg_compute_blob_kzg_proof(
     mk_bytearray(blob, BYTES_PER_BLOB),
-    mk_bytearray(c, BYTES_PER_COMMITMENT),
-    lean_io_mk_world());
+    mk_bytearray(c, BYTES_PER_COMMITMENT));
   if (run_io_into_bytearray(res, out, BYTES_PER_PROOF)) {
     PyErr_SetString(PyExc_RuntimeError, "compute_blob_kzg_proof failed");
     return NULL;
@@ -283,8 +267,7 @@ py_verify_blob_kzg_proof(
   lean_object* res = eth_kzg_verify_blob_kzg_proof(
     mk_bytearray(blob, BYTES_PER_BLOB),
     mk_bytearray(c, BYTES_PER_COMMITMENT),
-    mk_bytearray(p, BYTES_PER_PROOF),
-    lean_io_mk_world());
+    mk_bytearray(p, BYTES_PER_PROOF));
   if (run_io_into_bool(res, &ok)) {
     PyErr_SetString(PyExc_RuntimeError, "verify_blob_kzg_proof failed");
     return NULL;
@@ -315,8 +298,7 @@ py_verify_blob_kzg_proof_batch(
   lean_object* res = eth_kzg_verify_blob_kzg_proof_batch(
     mk_bytearray_array(blobs, nb, BYTES_PER_BLOB),
     mk_bytearray_array(coms, nc, BYTES_PER_COMMITMENT),
-    mk_bytearray_array(proofs, np, BYTES_PER_PROOF),
-    lean_io_mk_world());
+    mk_bytearray_array(proofs, np, BYTES_PER_PROOF));
   PyMem_Free(blobs); PyMem_Free(coms); PyMem_Free(proofs);
   if (run_io_into_bool(res, &ok)) {
     PyErr_SetString(PyExc_RuntimeError, "verify_blob_kzg_proof_batch failed");
@@ -338,7 +320,7 @@ py_compute_cells(
   uint8_t* out = (uint8_t*) PyMem_Malloc(total);
   if (!out) return PyErr_NoMemory();
   lean_object* res = eth_kzg_compute_cells(
-    mk_bytearray(blob, BYTES_PER_BLOB), lean_io_mk_world());
+    mk_bytearray(blob, BYTES_PER_BLOB));
   if (run_io_into_bytearray(res, out, total)) {
     PyMem_Free(out);
     PyErr_SetString(PyExc_RuntimeError, "compute_cells failed");
@@ -368,7 +350,7 @@ py_compute_cells_and_kzg_proofs(
   uint8_t* buf = (uint8_t*) PyMem_Malloc(total);
   if (!buf) return PyErr_NoMemory();
   lean_object* res = eth_kzg_compute_cells_and_kzg_proofs(
-    mk_bytearray(blob, BYTES_PER_BLOB), lean_io_mk_world());
+    mk_bytearray(blob, BYTES_PER_BLOB));
   if (run_io_into_bytearray(res, buf, total)) {
     PyMem_Free(buf);
     PyErr_SetString(PyExc_RuntimeError, "compute_cells_and_kzg_proofs failed");
@@ -457,8 +439,7 @@ py_compute_verify_cell_kzg_proof_batch_challenge(
     mk_indices_bytearray(com_idx, n_com_idx),
     mk_indices_bytearray(cell_idx, n_cell_idx),
     mk_bytearray_array(packed, n_packed, BYTES_PER_CELL),
-    mk_bytearray_array(proofs, n_proofs, BYTES_PER_PROOF),
-    lean_io_mk_world());
+    mk_bytearray_array(proofs, n_proofs, BYTES_PER_PROOF));
 
   PyMem_Free(proofs);
   PyMem_Free(packed);
@@ -500,8 +481,7 @@ py_verify_cell_kzg_proof_batch(
     mk_bytearray_array(coms, n_coms, BYTES_PER_COMMITMENT),
     mk_indices_bytearray(idx, n_idx),
     mk_bytearray_array(cells, n_cells, BYTES_PER_CELL),
-    mk_bytearray_array(proofs, n_proofs, BYTES_PER_PROOF),
-    lean_io_mk_world());
+    mk_bytearray_array(proofs, n_proofs, BYTES_PER_PROOF));
   PyMem_Free(proofs); PyMem_Free(cells); PyMem_Free(idx); PyMem_Free(coms);
   if (run_io_into_bool(res, &ok)) {
     PyErr_SetString(PyExc_RuntimeError, "verify_cell_kzg_proof_batch failed");
@@ -529,8 +509,7 @@ py_recover_cells_and_kzg_proofs(
 
   lean_object* res = eth_kzg_recover_cells_and_kzg_proofs(
     mk_indices_bytearray(idx, n_idx),
-    mk_bytearray_array(cells, n_cells, BYTES_PER_CELL),
-    lean_io_mk_world());
+    mk_bytearray_array(cells, n_cells, BYTES_PER_CELL));
   PyMem_Free(cells); PyMem_Free(idx);
 
   if (run_io_into_bytearray(res, buf, total)) {

@@ -9,16 +9,14 @@
 
 extern lean_object*
 eth_bls_aggregate_pubkeys(
-  lean_object* pubkeys,
-  lean_object* world
+  lean_object* pubkeys
 );
 
 extern lean_object*
 eth_bls_fast_aggregate_verify(
   lean_object* pubkeys,
   lean_object* msg,
-  lean_object* sig,
-  lean_object* world
+  lean_object* sig
 );
 
 /* ---- Wrappers --------------------------------------------------------- */
@@ -36,8 +34,7 @@ py_eth_aggregate_pubkeys(
 
   uint8_t out[BYTES_PER_PUBKEY];
   lean_object* res = eth_bls_aggregate_pubkeys(
-    mk_bytearray_array(pks, n, BYTES_PER_PUBKEY),
-    lean_io_mk_world());
+    mk_bytearray_array(pks, n, BYTES_PER_PUBKEY));
   PyMem_Free(pks);
   if (run_io_into_bytearray(res, out, BYTES_PER_PUBKEY)) {
     PyErr_SetString(PyExc_RuntimeError, "eth_aggregate_pubkeys failed");
@@ -80,8 +77,7 @@ py_eth_fast_aggregate_verify(
   lean_object* res = eth_bls_fast_aggregate_verify(
     mk_bytearray_array(pks, n, BYTES_PER_PUBKEY),
     mk_bytearray(msg, msg_len),
-    mk_bytearray(sig, sig_len),
-    lean_io_mk_world());
+    mk_bytearray(sig, sig_len));
   PyMem_Free(pks);
   if (run_io_into_bool(res, &ok)) {
     PyErr_SetString(PyExc_RuntimeError, "eth_fast_aggregate_verify failed");
