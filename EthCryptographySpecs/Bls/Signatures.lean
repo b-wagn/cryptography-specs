@@ -43,11 +43,13 @@ private def coreVerify
     | .ok sig =>
       if !signatureSubgroupCheck sig then false
       else
-        let q := HashToCurve.hashToG2 msg DST
-        Bls.pairingCheck #[
-          (G1.generator, sig),
-          (G1.neg pk, q)
-        ]
+        match HashToCurve.hashToG2 msg DST with
+        | .error _ => false
+        | .ok q =>
+          Bls.pairingCheck #[
+            (G1.generator, sig),
+            (G1.neg pk, q)
+          ]
 
 /-- IRTF `FastAggregateVerify` for a single message: aggregate pubkeys
 then verify. Returns `false` on invalid encodings. -/

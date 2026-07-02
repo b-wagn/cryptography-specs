@@ -34,6 +34,10 @@ inductive BlsError where
   | nonCanonicalFieldElement
   /-- A field element had no square root (not a quadratic residue). -/
   | notASquare
+  /-- `expand_message_xmd` was asked for more than 65535 bytes. -/
+  | expandMessageOutputTooLong (len : Nat)
+  /-- `expand_message_xmd` would need more than 255 hash blocks. -/
+  | expandMessageTooManyBlocks (ell : Nat)
 
 /-- Human-readable description, used at the C-ABI boundary. -/
 def BlsError.message : BlsError → String
@@ -47,6 +51,10 @@ def BlsError.message : BlsError → String
   | .notInSubgroup              => "point not in subgroup"
   | .nonCanonicalFieldElement   => "non-canonical field element"
   | .notASquare                 => "not a square"
+  | .expandMessageOutputTooLong len =>
+      s!"expand_message_xmd output too long: {len}"
+  | .expandMessageTooManyBlocks ell =>
+      s!"expand_message_xmd too many blocks: {ell}"
 
 /-- Run a fallible BLS computation down to `IO`, turning a `BlsError`
 into the `IO.userError` the C-ABI layer surfaces to callers. -/

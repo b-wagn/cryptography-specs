@@ -19,6 +19,8 @@ open EthCryptographySpecs.Bls
 
 private def sha256BlockSize : Nat := 64
 private def sha256OutputSize : Nat := 32
+private def oversizeDstPrefix : ByteArray :=
+  String.toUTF8 "H2C-OVERSIZE-DST-"
 
 private def i2osp (n : Nat) (len : Nat) : ByteArray :=
   ByteArray.mk <| Array.ofFn (n := len) fun i =>
@@ -28,9 +30,21 @@ private def strxor (a b : ByteArray) : ByteArray :=
   ByteArray.mk <| Array.ofFn (n := a.size) fun i => a[i.val]! ^^^ b[i.val]!
 
 /-- Expand `msg` into `lenInBytes` pseudo-random bytes via XMD with
-SHA-256. Requires `lenInBytes ≤ 65535` and `dst.size ≤ 255`. -/
-def expandMessageXmd (msg : ByteArray) (dst : ByteArray) (lenInBytes : Nat) : ByteArray := Id.run do
+SHA-256. Follows RFC 9380 §5.3.1 and §5.3.3: oversized DSTs are first
+shortened with SHA-256, and oversized output requests are rejected. -/
+def expandMessageXmd
+    (msg : ByteArray) (dst : ByteArray) (lenInBytes : Nat)
+    : Except BlsError ByteArray := do
   let ell := (lenInBytes + sha256OutputSize - 1) / sha256OutputSize
+  if lenInBytes > 65535 then
+    throw (.expandMessageOutputTooLong lenInBytes)
+  if ell > 255 then
+    throw (.expandMessageTooManyBlocks ell)
+  let dst :=
+    if dst.size > 255 then
+      Sha256.hash (oversizeDstPrefix ++ dst)
+    else
+      dst
   let zPad := ByteArray.mk (Array.replicate sha256BlockSize 0)
   let dstPrime := dst ++ i2osp dst.size 1
   let lIbStr := i2osp lenInBytes 2
@@ -60,11 +74,13 @@ private def fpFromBytesL (b : ByteArray) : Fp :=
     return acc
   Fp.ofNat n
 
-def hashToFieldFp2 (msg : ByteArray) (dst : ByteArray) (count : Nat) : Array Fp2 := Id.run do
+def hashToFieldFp2
+    (msg : ByteArray) (dst : ByteArray) (count : Nat)
+    : Except BlsError (Array Fp2) := do
   let l := 64           -- per RFC: ceil((ceil(log2(p)) + k) / 8) = 64 for BLS12-381
   let m := 2
   let lenInBytes := count * m * l
-  let uniform := expandMessageXmd msg dst lenInBytes
+  let uniform ← expandMessageXmd msg dst lenInBytes
   let mut out : Array Fp2 := Array.mkEmpty count
   for i in [:count] do
     let off0 := l * (i * m)
@@ -240,14 +256,14 @@ def clearCofactor (P : G2) : G2 :=
 /-! ## Top-level pipeline -/
 
 /-- Hash a message + DST to a G2 point on BLS12-381. -/
-def hashToG2 (msg : ByteArray) (dst : ByteArray) : G2 :=
-  let us := hashToFieldFp2 msg dst 2
+def hashToG2 (msg : ByteArray) (dst : ByteArray) : Except BlsError G2 := do
+  let us ← hashToFieldFp2 msg dst 2
   let (x0, y0) := simpleSwu us[0]!
   let (x1, y1) := simpleSwu us[1]!
   let (xa, ya) := isoMapG2 x0 y0
   let (xb, yb) := isoMapG2 x1 y1
   let p0 : G2 := ⟨xa, ya, Fp2.one⟩
   let p1 : G2 := ⟨xb, yb, Fp2.one⟩
-  clearCofactor (G2.add p0 p1)
+  return clearCofactor (G2.add p0 p1)
 
 end EthCryptographySpecs.Bls.HashToCurve
