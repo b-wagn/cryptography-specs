@@ -22,8 +22,8 @@ open EthCryptographySpecs.Kzg.BitReversal
 
 /-- Polynomial that vanishes at every point of every missing cell.
 Assumes at least one cell is present. -/
-private def constructVanishingPolynomial
-    (missingCellIndices : Array CellIndex) : PolynomialCoeff := Id.run do
+def constructVanishingPolynomial
+    (missingCellIndices : Array CellIndex) : PolynomialCoeff :=
   -- Small domain: roots of unity of order CELLS_PER_EXT_BLOB.
   let rouReduced := computeRootsOfUnity CELLS_PER_EXT_BLOB
 
@@ -34,37 +34,33 @@ private def constructVanishingPolynomial
 
   -- Extend to the full domain using the closed form of the vanishing
   -- polynomial over a coset.
-  let mut zeroPoly : PolynomialCoeff :=
-    Array.replicate FIELD_ELEMENTS_PER_EXT_BLOB Fr.zero
-  for i in [:shortZeroPoly.size] do
-    zeroPoly := zeroPoly.set! (i * FIELD_ELEMENTS_PER_CELL) shortZeroPoly[i]!
-  return zeroPoly
+  (Array.range shortZeroPoly.size).foldl
+    (init := Array.replicate FIELD_ELEMENTS_PER_EXT_BLOB Fr.zero)
+    fun zeroPoly i =>
+      zeroPoly.set! (i * FIELD_ELEMENTS_PER_CELL) shortZeroPoly[i]!
 
 /-- Recover the coefficient-form polynomial whose evaluations on the
 roots of unity reproduce the extended blob. -/
-private def recoverPolynomialcoeff
+def recoverPolynomialcoeff
     (cellIndices : Array CellIndex) (cosetsEvals : Array CosetEvals)
-    : PolynomialCoeff := Id.run do
+    : PolynomialCoeff :=
   let rouExt := computeRootsOfUnity FIELD_ELEMENTS_PER_EXT_BLOB
 
   -- Flatten coset evaluations; missing cells contribute zeros.
-  let mut extendedRbo : Array Fr :=
-    Array.replicate FIELD_ELEMENTS_PER_EXT_BLOB Fr.zero
-  for k in [:cellIndices.size] do
-    let cellIndex := cellIndices[k]!
-    let cell := cosetsEvals[k]!
-    let start := cellIndex * FIELD_ELEMENTS_PER_CELL
-    for j in [:FIELD_ELEMENTS_PER_CELL] do
-      extendedRbo := extendedRbo.set! (start + j) cell[j]!
+  let extendedRbo : Array Fr := (Array.range cellIndices.size).foldl
+    (init := Array.replicate FIELD_ELEMENTS_PER_EXT_BLOB Fr.zero)
+    fun acc k =>
+      let cell := cosetsEvals[k]!
+      let start := cellIndices[k]! * FIELD_ELEMENTS_PER_CELL
+      (Array.range FIELD_ELEMENTS_PER_CELL).foldl
+        (fun acc j => acc.set! (start + j) cell[j]!) acc
 
   let extended := bitReversalPermutation extendedRbo
 
   -- Vanishing polynomial Z(x) over the missing cells.
   -- CELLS_PER_EXT_BLOB = 128; an Array.contains lookup is plenty fast.
-  let mut missing : Array CellIndex := Array.empty
-  for ci in [:CELLS_PER_EXT_BLOB] do
-    if !cellIndices.contains ci then
-      missing := missing.push ci
+  let missing : Array CellIndex :=
+    (Array.range CELLS_PER_EXT_BLOB).filter fun ci => !cellIndices.contains ci
   let zeroPolyCoeff := constructVanishingPolynomial missing
 
   -- Z(x) in evaluation form over the FFT domain.
@@ -87,7 +83,7 @@ private def recoverPolynomialcoeff
       pzOverCoset[i.val]! / zOverCoset[i.val]!
   let pCoeff := cosetFftField pOverCoset rouExt (inv := true)
 
-  return pCoeff.extract 0 FIELD_ELEMENTS_PER_BLOB
+  pCoeff.extract 0 FIELD_ELEMENTS_PER_BLOB
 
 /-- Recover all cells and proofs from any 50%+ subset of a blob's cells. -/
 def recoverCellsAndKzgProofs
@@ -107,24 +103,21 @@ def recoverCellsAndKzgProofs
     throw .tooManyCells
 
   -- Cell indices must be within bounds.
-  for ci in cellIndices do
-    if ci ≥ CELLS_PER_EXT_BLOB then
-      throw .cellIndexOutOfBounds
+  if cellIndices.any (· ≥ CELLS_PER_EXT_BLOB) then
+    throw .cellIndexOutOfBounds
 
   -- Cell indices must be strictly ascending.
-  for i in [1:cellIndices.size] do
-    if cellIndices[i]! ≤ cellIndices[i-1]! then
-      throw .indicesNotAscending
+  if (Array.range (cellIndices.size - 1)).any
+      (fun i => cellIndices[i + 1]! ≤ cellIndices[i]!) then
+    throw .indicesNotAscending
 
   -- Cells must be the correct size.
-  for c in cells do
-    if c.size ≠ BYTES_PER_CELL then
-      throw (.badCellSize c.size)
+  if let some c := cells.find? (fun c => c.size != BYTES_PER_CELL) then
+    throw (.badCellSize c.size)
 
   -- Convert cells to coset evaluations.
-  let mut cosetsEvals : Array CosetEvals := Array.mkEmpty cells.size
-  for c in cells do
-    cosetsEvals := cosetsEvals.push (← cellToCosetEvals c)
+  let cosetsEvals : Array CosetEvals ← cells.mapM fun c =>
+    cellToCosetEvals c
 
   let polyCoeff := recoverPolynomialcoeff cellIndices cosetsEvals
   computeCellsAndKzgProofsPolynomialcoeff polyCoeff
