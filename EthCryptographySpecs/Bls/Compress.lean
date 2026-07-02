@@ -33,10 +33,10 @@ namespace EthCryptographySpecs.Bls
 
 /-- Lex-order sign on `Fp2`: compare `c1` first, then `c0`. -/
 def Fp2.signBit (y : Fp2) : Bool :=
-  if y.c1.val ≠ Fp.modulus - y.c1.val then
-    y.c1.val > Fp.modulus - y.c1.val
+  if !y.c1.isZero then
+    Fp.signBit y.c1
   else
-    y.c0.val > Fp.modulus - y.c0.val
+    Fp.signBit y.c0
 
 /-! ## Square root in Fp2 -/
 
