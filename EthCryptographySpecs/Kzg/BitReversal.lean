@@ -6,19 +6,16 @@
 
 namespace EthCryptographySpecs.Kzg.BitReversal
 
-/-- Reverse the lower `bits` bits of `n`. -/
-def reverseBitsAux (n : Nat) (bits : Nat) : Nat := Id.run do
-  let mut x := n
-  let mut r := 0
-  for _ in [:bits] do
-    r := (r <<< 1) ||| (x &&& 1)
-    x := x >>> 1
-  return r
+/-- Reverse the lower `bits` bits of `x`, shifting the reversed bits into
+the accumulator `r` (pass `0` initially). -/
+def reverseBitsAux (x r : Nat) : Nat → Nat
+  | 0 => r
+  | bits + 1 => reverseBitsAux (x >>> 1) ((r <<< 1) ||| (x &&& 1)) bits
 
 /-- Reverse the bit order of `n` over `log2 order` bits. Requires
 `order` to be a positive power of two. -/
 def reverseBits (n order : Nat) : Nat :=
-  reverseBitsAux n order.log2
+  reverseBitsAux n 0 order.log2
 
 /-- Bit-reversed permutation of `seq`: `out[i] = seq[reverseBits i (size seq)]`.
 The permutation is an involution. -/

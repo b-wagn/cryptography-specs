@@ -6,49 +6,22 @@ import EthCryptographySpecs.Kzg.BitReversal
 Correctness properties of `reverseBitsAux`, `reverseBits`, and
 `bitReversalPermutation`.
 
-The imperative loop in `reverseBitsAux` is first shown equal to the
-structurally recursive `reverseBitsModel`, whose output bits are then
-characterized via `Nat.testBit`. Everything else follows from that
+The output bits of `reverseBitsAux` are characterized via `Nat.testBit`
+(`testBit_reverseBitsAux`); everything else follows from that
 characterization.
 -/
 
 namespace EthCryptographySpecs.Kzg.BitReversal
 
-/-- Structurally recursive model of the loop inside `reverseBitsAux`.
-`x` is the remaining input, `r` the accumulated (reversed) output. -/
-def reverseBitsModel (x r : Nat) : Nat → Nat
-  | 0 => r
-  | bits + 1 => reverseBitsModel (x >>> 1) ((r <<< 1) ||| (x &&& 1)) bits
-
-/-- The loop body of `reverseBitsAux`, folded over a list, computes
-`reverseBitsModel`. Stated in the `% 2` form `simp` normalizes `&&& 1` to. -/
-private theorem foldl_loop_eq_model (l : List Nat) (x r : Nat) :
-    List.foldl
-      (fun (s : MProd Nat Nat) (_ : Nat) =>
-        ⟨(s.fst <<< 1) ||| (s.snd % 2), s.snd >>> 1⟩)
-      ⟨r, x⟩ l
-      = ⟨reverseBitsModel x r l.length, x >>> l.length⟩ := by
-  induction l generalizing x r with
-  | nil => simp [reverseBitsModel]
-  | cons a l ih =>
-    rw [List.foldl_cons, ih, List.length_cons, reverseBitsModel,
-      Nat.and_one_is_mod, ← Nat.shiftRight_add, Nat.add_comm 1 l.length]
-
-/-- The loop in `reverseBitsAux` computes `reverseBitsModel`. -/
-theorem reverseBitsAux_eq_model (n bits : Nat) :
-    reverseBitsAux n bits = reverseBitsModel n 0 bits := by
-  unfold reverseBitsAux
-  simp [Std.Legacy.Range.size, foldl_loop_eq_model]
-
-/-- Bit `i` of `reverseBitsModel x r bits`: below `bits` it is the mirrored
+/-- Bit `i` of `reverseBitsAux x r bits`: below `bits` it is the mirrored
 bit of `x`; at and above `bits` it comes from the accumulator `r`. -/
-theorem testBit_reverseBitsModel (bits x r i : Nat) :
-    (reverseBitsModel x r bits).testBit i =
+theorem testBit_reverseBitsAux (bits x r i : Nat) :
+    (reverseBitsAux x r bits).testBit i =
       if i < bits then x.testBit (bits - 1 - i) else r.testBit (i - bits) := by
   induction bits generalizing x r i with
-  | zero => simp [reverseBitsModel]
+  | zero => simp [reverseBitsAux]
   | succ b ih =>
-    rw [reverseBitsModel, ih]
+    rw [reverseBitsAux, ih]
     rcases Nat.lt_trichotomy i b with h | h | h
     · rw [if_pos h, if_pos (by omega), Nat.testBit_shiftRight]
       exact congrArg x.testBit (by omega)
@@ -65,54 +38,36 @@ theorem testBit_reverseBitsModel (bits x r i : Nat) :
         Nat.testBit_lt_two_pow hand]
       simp [Nat.le_add_left]
 
-/-- Bit `i` of `reverseBitsAux n bits` is bit `bits - 1 - i` of `n`
-(and `false` at or above `bits`). -/
-theorem testBit_reverseBitsAux (n bits i : Nat) :
-    (reverseBitsAux n bits).testBit i =
-      if i < bits then n.testBit (bits - 1 - i) else false := by
-  rw [reverseBitsAux_eq_model, testBit_reverseBitsModel]
-  simp
-
-/-- `reverseBitsAux` stays below `2 ^ bits`. -/
-theorem reverseBitsAux_lt_two_pow (n bits : Nat) :
-    reverseBitsAux n bits < 2 ^ bits := by
-  rcases Nat.lt_or_ge (reverseBitsAux n bits) (2 ^ bits) with h | h
-  · exact h
-  · obtain ⟨i, hi, hbit⟩ := Nat.exists_ge_and_testBit_of_ge_two_pow h
-    rw [testBit_reverseBitsAux, if_neg (by omega)] at hbit
-    exact absurd hbit Bool.false_ne_true
-
-/-- `reverseBitsAux _ bits` is an involution on `[0, 2 ^ bits)`. -/
-theorem reverseBitsAux_reverseBitsAux {n bits : Nat} (h : n < 2 ^ bits) :
-    reverseBitsAux (reverseBitsAux n bits) bits = n := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  rw [testBit_reverseBitsAux]
-  by_cases hi : i < bits
-  · rw [if_pos hi, testBit_reverseBitsAux, if_pos (by omega)]
-    exact congrArg n.testBit (by omega)
-  · rw [if_neg hi]
-    exact (Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le h
-      (Nat.pow_le_pow_right (by omega) (Nat.le_of_not_lt hi)))).symm
-
-/-- Bit `i` of `reverseBits n (2 ^ k)` is bit `k - 1 - i` of `n`. -/
+/-- Bit `i` of `reverseBits n (2 ^ k)` is bit `k - 1 - i` of `n`
+(and `false` at or above `k`). -/
 theorem testBit_reverseBits (n k i : Nat) :
     (reverseBits n (2 ^ k)).testBit i =
       if i < k then n.testBit (k - 1 - i) else false := by
   rw [reverseBits, Nat.log2_two_pow, testBit_reverseBitsAux]
+  simp
 
 /-- `reverseBits _ order` stays below `order` for power-of-two `order`. -/
 theorem reverseBits_lt_two_pow (n k : Nat) :
     reverseBits n (2 ^ k) < 2 ^ k := by
-  rw [reverseBits, Nat.log2_two_pow]
-  exact reverseBitsAux_lt_two_pow n k
+  rcases Nat.lt_or_ge (reverseBits n (2 ^ k)) (2 ^ k) with h | h
+  · exact h
+  · obtain ⟨i, hi, hbit⟩ := Nat.exists_ge_and_testBit_of_ge_two_pow h
+    rw [testBit_reverseBits, if_neg (by omega)] at hbit
+    exact absurd hbit Bool.false_ne_true
 
 /-- `reverseBits _ order` is an involution on `[0, order)` for
 power-of-two `order`. -/
 theorem reverseBits_reverseBits {n k : Nat} (h : n < 2 ^ k) :
     reverseBits (reverseBits n (2 ^ k)) (2 ^ k) = n := by
-  rw [reverseBits, reverseBits, Nat.log2_two_pow]
-  exact reverseBitsAux_reverseBitsAux h
+  apply Nat.eq_of_testBit_eq
+  intro i
+  rw [testBit_reverseBits]
+  by_cases hi : i < k
+  · rw [if_pos hi, testBit_reverseBits, if_pos (by omega)]
+    exact congrArg n.testBit (by omega)
+  · rw [if_neg hi]
+    exact (Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le h
+      (Nat.pow_le_pow_right (by omega) (Nat.le_of_not_lt hi)))).symm
 
 /-- `bitReversalPermutation` preserves size. -/
 theorem size_bitReversalPermutation {α : Type _} [Inhabited α]
