@@ -16,12 +16,24 @@ self-contained Python extension.
 -/
 
 package «EthCryptographySpecs» where
-  precompileModules := true
-  moreLeancArgs      := #["-fPIC"]
+  moreLeancArgs := #["-fPIC"]
 
 @[default_target]
 lean_lib «EthCryptographySpecs» where
   precompileModules := true
+  leanOptions := #[
+    ⟨`linter.all, true⟩,
+    ⟨`linter.missingDocs, false⟩
+  ]
+
+/-- Proofs about the specification. A separate library (rooted at
+`EthCryptographySpecs/Proofs.lean`) so the executable spec never depends
+on it. `precompileModules` is off: theorems produce no code, and this
+keeps proof object files out of the Python extension link. -/
+@[default_target]
+lean_lib «Proofs» where
+  roots := #[`EthCryptographySpecs.Proofs]
+  precompileModules := false
   leanOptions := #[
     ⟨`linter.all, true⟩,
     ⟨`linter.missingDocs, false⟩

@@ -7,7 +7,7 @@
 namespace EthCryptographySpecs.Kzg.BitReversal
 
 /-- Reverse the lower `bits` bits of `n`. -/
-private def reverseBitsAux (n : Nat) (bits : Nat) : Nat := Id.run do
+def reverseBitsAux (n : Nat) (bits : Nat) : Nat := Id.run do
   let mut x := n
   let mut r := 0
   for _ in [:bits] do

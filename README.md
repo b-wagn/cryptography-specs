@@ -7,6 +7,11 @@ Specifications for cryptography in Ethereum, written in Lean.
 - `EthCryptographySpecs/Bls/`, BLS12-381 curve arithmetic, hash-to-curve, and signatures.
 - `EthCryptographySpecs/Kzg/`, KZG polynomial commitments.
 
+## Proofs
+
+Formal proofs of properties of the specs exist in
+`EthCryptographySpecs/Proofs/`, mirroring the layout above.
+
 ## Prerequisites
 
 - [`elan`](https://github.com/leanprover/elan), for `lean` and `lake`.
