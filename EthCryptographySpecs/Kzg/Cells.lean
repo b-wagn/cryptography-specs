@@ -149,9 +149,10 @@ private def cosetForCell (cellIndex : CellIndex) : Coset :=
   Array.ofFn (n := FIELD_ELEMENTS_PER_CELL) fun i => domain[start + i.val]!
 
 /-- Compute a KZG multi-evaluation proof for a set of `k` points.
-We commit to `Q(X) = f(X) / Z(X)` where `Z(X)` is the vanishing
-polynomial on `zs`. The `I(X)` numerator term vanishes at the
-monomial-form level because `deg(I) < deg(Z)`. -/
+For `Z(X)` the vanishing polynomial on `zs`, division gives
+`f(X) = Q(X) * Z(X) + I(X)`, where the remainder `I(X)` is the
+degree-`< k` interpolation polynomial through the evaluations at `zs`.
+The proof commits to the quotient `Q(X)`. -/
 private def computeKzgProofMultiImpl
     (polynomialCoeff : PolynomialCoeff) (zs : Coset) : KzgM (KZGProof × CosetEvals) := do
   let setup ← TrustedSetup.get!
