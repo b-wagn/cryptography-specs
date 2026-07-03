@@ -3,6 +3,7 @@ import EthCryptographySpecs.Proofs.Kzg.Fft
 import EthCryptographySpecs.Proofs.Kzg.Polynomials
 import EthCryptographySpecs.Proofs.Kzg.Core
 import EthCryptographySpecs.Proofs.Kzg.Recovery
+import EthCryptographySpecs.Proofs.Kzg.Cells
 
 /-!
 # `EthCryptographySpecs.Proofs.Kzg`

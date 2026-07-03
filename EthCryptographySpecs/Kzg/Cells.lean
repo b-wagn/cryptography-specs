@@ -35,99 +35,84 @@ abbrev CosetEvals       := Array Fr
 def cellToCosetEvals (cell : Cell) : Except KzgError CosetEvals := do
   if cell.size ≠ BYTES_PER_CELL then
     throw (.badCellSize cell.size)
-  let mut evals : Array Fr := Array.mkEmpty FIELD_ELEMENTS_PER_CELL
-  for i in [:FIELD_ELEMENTS_PER_CELL] do
+  (Array.range FIELD_ELEMENTS_PER_CELL).mapM fun i =>
     let s := i * BYTES_PER_FIELD_ELEMENT
     let e := (i + 1) * BYTES_PER_FIELD_ELEMENT
     match bytesToBlsField (cell.extract s e) with
-    | .ok f    => evals := evals.push f
+    | .ok f    => pure f
     | .error _ => throw (.invalidFieldElement (some i))
-  return evals
 
 /-- Convert a trusted `CosetEvals` back into an untrusted `Cell`. -/
-private def cosetEvalsToCell (cosetEvals : CosetEvals) : Cell := Id.run do
-  let mut bytes : ByteArray := ByteArray.empty
-  for i in [:FIELD_ELEMENTS_PER_CELL] do
-    bytes := bytes ++ blsFieldToBytes cosetEvals[i]!
-  return bytes
+def cosetEvalsToCell (cosetEvals : CosetEvals) : Cell :=
+  (Array.range FIELD_ELEMENTS_PER_CELL).foldl
+    (init := ByteArray.empty)
+    fun bytes i => bytes ++ blsFieldToBytes cosetEvals[i]!
 
 /-! ## Polynomials in coefficient form -/
 
 /-- Sum the coefficient-form polynomials `a` and `b`. -/
-private def addPolynomialcoeff (a b : PolynomialCoeff) : PolynomialCoeff :=
+def addPolynomialcoeff (a b : PolynomialCoeff) : PolynomialCoeff :=
   let (a, b) := if a.size ≥ b.size then (a, b) else (b, a)
   Array.ofFn (n := a.size) fun i =>
     let bi := if i.val < b.size then b[i.val]! else Fr.zero
     a[i.val]! + bi
 
 /-- Multiply the coefficient-form polynomials `a` and `b`. -/
-private def multiplyPolynomialcoeff (a b : PolynomialCoeff) : PolynomialCoeff := Id.run do
+private def multiplyPolynomialcoeff (a b : PolynomialCoeff) : PolynomialCoeff :=
   -- Caller must ensure `len(a) + len(b) ≤ FIELD_ELEMENTS_PER_EXT_BLOB`.
-  let mut r : PolynomialCoeff := #[Fr.zero]
-  for power in [:a.size] do
+  (Array.range a.size).foldl (init := #[Fr.zero]) fun r power =>
     let coef := a[power]!
     let summand : PolynomialCoeff :=
-      let zeros := Array.replicate power Fr.zero
-      zeros ++ b.map (· * coef)
-    r := addPolynomialcoeff r summand
-  return r
+      Array.replicate power Fr.zero ++ b.map (· * coef)
+    addPolynomialcoeff r summand
 
-/-- Long polynomial division for two coefficient-form polynomials. -/
-private def dividePolynomialcoeff (a b : PolynomialCoeff) : PolynomialCoeff := Id.run do
-  let mut a := a
-  let mut o : PolynomialCoeff := Array.empty
-  let mut apos : Int := (a.size : Int) - 1
+/-- Long polynomial division for two coefficient-form polynomials.
+Each step eliminates the current leading coefficient of `a` (at index
+`apos`, descending) and prepends the quotient coefficient to `o`. -/
+private def dividePolynomialcoeff (a b : PolynomialCoeff) : PolynomialCoeff :=
   let bpos := b.size - 1
-  let mut diff : Int := apos - (bpos : Int)
   -- The divisor's leading coefficient is loop-invariant; precompute its
   -- inverse once instead of paying for a full Fermat exponentiation
   -- (~570 Fp muls) on every outer iteration.
   let bLeadInv := b[bpos]!.inverse
-  while diff ≥ 0 do
-    let apos_n := apos.toNat
-    let diff_n := diff.toNat
-    let quot := a[apos_n]! * bLeadInv
-    o := #[quot] ++ o
-    let mut i : Int := bpos
-    while i ≥ 0 do
-      let i_n := i.toNat
-      a := a.set! (diff_n + i_n) (a[diff_n + i_n]! - b[i_n]! * quot)
-      i := i - 1
-    apos := apos - 1
-    diff := diff - 1
-  return o
+  -- One quotient coefficient per step, while `apos - t ≥ bpos`.
+  let steps := a.size + 1 - max b.size 1
+  let (_, o) := (Array.range steps).foldl
+    (init := (a, (Array.empty : PolynomialCoeff)))
+    fun (a, o) t =>
+      let apos := a.size - 1 - t
+      let diff := apos - bpos
+      let quot := a[apos]! * bLeadInv
+      let a := (Array.range b.size).foldl
+        (fun a i => a.set! (diff + i) (a[diff + i]! - b[i]! * quot)) a
+      (a, #[quot] ++ o)
+  o
 
 /-- Lagrange interpolation in coefficient form. Leading coefficients
 may be zero. -/
 private def interpolatePolynomialcoeff
-    (xs ys : Array Fr) : PolynomialCoeff := Id.run do
-  let mut r : PolynomialCoeff := #[Fr.zero]
-  for i in [:xs.size] do
-    let mut summand : PolynomialCoeff := #[ys[i]!]
-    for j in [:ys.size] do
-      if j ≠ i then
-        let weightAdj := (xs[i]! - xs[j]!).inverse
-        summand := multiplyPolynomialcoeff summand
-                     #[(-weightAdj) * xs[j]!, weightAdj]
-    r := addPolynomialcoeff r summand
-  return r
+    (xs ys : Array Fr) : PolynomialCoeff :=
+  (Array.range xs.size).foldl (init := #[Fr.zero]) fun r i =>
+    let summand := (Array.range ys.size).foldl (init := #[ys[i]!])
+      fun summand j =>
+        if j ≠ i then
+          let weightAdj := (xs[i]! - xs[j]!).inverse
+          multiplyPolynomialcoeff summand #[(-weightAdj) * xs[j]!, weightAdj]
+        else
+          summand
+    addPolynomialcoeff r summand
 
 /-- Compute the vanishing polynomial on `xs` (coefficient form). -/
-def vanishingPolynomialcoeff (xs : Array Fr) : PolynomialCoeff := Id.run do
-  let mut p : PolynomialCoeff := #[Fr.one]
-  for x in xs do
-    p := multiplyPolynomialcoeff p #[-x, Fr.one]
-  return p
+def vanishingPolynomialcoeff (xs : Array Fr) : PolynomialCoeff :=
+  xs.foldl (init := #[Fr.one]) fun p x =>
+    multiplyPolynomialcoeff p #[-x, Fr.one]
 
 /-- Evaluate a coefficient-form polynomial at `z` using Horner's schema. -/
 def evaluatePolynomialcoeff
-    (polynomialCoeff : PolynomialCoeff) (z : Fr) : Fr := Id.run do
-  let mut y : Fr := Fr.zero
+    (polynomialCoeff : PolynomialCoeff) (z : Fr) : Fr :=
   let n := polynomialCoeff.size
-  for i in [:n] do
-    let coef := polynomialCoeff[n - 1 - i]!
-    y := y * z + coef
-  return y
+  (Array.range n).foldl (init := Fr.zero) fun y i =>
+    y * z + polynomialCoeff[n - 1 - i]!
 
 /-- Convert evaluation form to coefficient form via inverse FFT. -/
 private def polynomialEvalToCoeff (polynomial : Polynomial) : PolynomialCoeff :=
@@ -143,7 +128,7 @@ private def cosetShiftForCell (cellIndex : CellIndex) : Fr :=
   domain[FIELD_ELEMENTS_PER_CELL * cellIndex]!
 
 /-- The full evaluation coset for cell `cellIndex`. -/
-private def cosetForCell (cellIndex : CellIndex) : Coset :=
+def cosetForCell (cellIndex : CellIndex) : Coset :=
   let domain := rootsOfUnityBrp FIELD_ELEMENTS_PER_EXT_BLOB
   let start := FIELD_ELEMENTS_PER_CELL * cellIndex
   Array.ofFn (n := FIELD_ELEMENTS_PER_CELL) fun i => domain[start + i.val]!
@@ -169,24 +154,17 @@ def computeCells (blob : Blob) : KzgM (Array Cell) := do
     throw (.badBlobSize blob.size)
   let polynomial ← blobToPolynomial blob
   let polynomialCoeff := polynomialEvalToCoeff polynomial
-  let mut cells : Array Cell := Array.mkEmpty CELLS_PER_EXT_BLOB
-  for i in [:CELLS_PER_EXT_BLOB] do
-    let coset := cosetForCell i
-    let ys : CosetEvals := coset.map (evaluatePolynomialcoeff polynomialCoeff)
-    cells := cells.push (cosetEvalsToCell ys)
-  return cells
+  return Array.ofFn (n := CELLS_PER_EXT_BLOB) fun i =>
+    let coset := cosetForCell i.val
+    cosetEvalsToCell (coset.map (evaluatePolynomialcoeff polynomialCoeff))
 
 /-- Compute cells and proofs for a polynomial in coefficient form. -/
 def computeCellsAndKzgProofsPolynomialcoeff
     (polynomialCoeff : PolynomialCoeff) : KzgM (Array Cell × Array KZGProof) := do
-  let mut cells  : Array Cell     := Array.mkEmpty CELLS_PER_EXT_BLOB
-  let mut proofs : Array KZGProof := Array.mkEmpty CELLS_PER_EXT_BLOB
-  for i in [:CELLS_PER_EXT_BLOB] do
-    let coset := cosetForCell i
-    let (proof, ys) ← computeKzgProofMultiImpl polynomialCoeff coset
-    cells  := cells.push  (cosetEvalsToCell ys)
-    proofs := proofs.push proof
-  return (cells, proofs)
+  let pairs ← (Array.range CELLS_PER_EXT_BLOB).mapM fun i => do
+    let (proof, ys) ← computeKzgProofMultiImpl polynomialCoeff (cosetForCell i)
+    pure (cosetEvalsToCell ys, proof)
+  return (pairs.map (·.1), pairs.map (·.2))
 
 /-- Compute all cell proofs for an extended blob. Naive O(n²);
 optimal implementations use FK20. -/
@@ -204,26 +182,25 @@ def computeVerifyCellKzgProofBatchChallenge
     (commitmentIndices : Array CommitmentIndex)
     (cellIndices : Array CellIndex)
     (cosetsEvals : Array CosetEvals)
-    (proofs : Array KZGProof) : Fr := Id.run do
-  let mut h := RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN
-  h := h ++ intToBytesBE FIELD_ELEMENTS_PER_BLOB 8
-  h := h ++ intToBytesBE FIELD_ELEMENTS_PER_CELL 8
-  h := h ++ intToBytesBE commitments.size 8
-  h := h ++ intToBytesBE cellIndices.size 8
-  for c in commitments do
-    h := h ++ c
-  for k in [:cosetsEvals.size] do
-    h := h ++ intToBytesBE commitmentIndices[k]! 8
-    h := h ++ intToBytesBE cellIndices[k]! 8
-    for ce in cosetsEvals[k]! do
-      h := h ++ blsFieldToBytes ce
-    h := h ++ proofs[k]!
-  return hashToBlsField h
+    (proofs : Array KZGProof) : Fr :=
+  let h := RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN
+    ++ intToBytesBE FIELD_ELEMENTS_PER_BLOB 8
+    ++ intToBytesBE FIELD_ELEMENTS_PER_CELL 8
+    ++ intToBytesBE commitments.size 8
+    ++ intToBytesBE cellIndices.size 8
+  let h := commitments.foldl (init := h) fun h c => h ++ c
+  let h := (Array.range cosetsEvals.size).foldl (init := h) fun h k =>
+    let h := h ++ intToBytesBE commitmentIndices[k]! 8
+    let h := h ++ intToBytesBE cellIndices[k]! 8
+    let h := cosetsEvals[k]!.foldl (init := h) fun h ce =>
+      h ++ blsFieldToBytes ce
+    h ++ proofs[k]!
+  hashToBlsField h
 
 /-- Verify that a set of cells belong to their corresponding commitment.
 The pairing equation has six accumulator terms, named LL, LR, RL, RLC,
 RLI, RLP in the comments below. -/
-private def verifyCellKzgProofBatchImpl
+def verifyCellKzgProofBatchImpl
     (commitments : Array KZGCommitment)
     (commitmentIndices : Array CommitmentIndex)
     (cellIndices : Array CellIndex)
@@ -236,9 +213,8 @@ private def verifyCellKzgProofBatchImpl
     throw (.inputLengthMismatch "cosetsEvals" commitmentIndices.size cosetsEvals.size)
   if proofs.size ≠ commitmentIndices.size then
     throw (.inputLengthMismatch "proofs" commitmentIndices.size proofs.size)
-  for ci in commitmentIndices do
-    if ci ≥ commitments.size then
-      throw .commitmentIndexOutOfBounds
+  if commitmentIndices.any (· ≥ commitments.size) then
+    throw .commitmentIndexOutOfBounds
 
   let setup ← TrustedSetup.get!
   let numCells := cellIndices.size
@@ -257,31 +233,30 @@ private def verifyCellKzgProofBatchImpl
   let lr : G2 := setup.g2Monomial[n]!
 
   -- Step 4.1: weights[i] = Σ_{k : commitmentIndices[k] = i} r^k.
-  let mut weights : Array Fr :=
-    Array.replicate numCommitments Fr.zero
-  for k in [:numCells] do
-    let i := commitmentIndices[k]!
-    weights := weights.set! i (weights[i]! + rPowers[k]!)
+  let weights : Array Fr := (Array.range numCells).foldl
+    (init := Array.replicate numCommitments Fr.zero)
+    fun weights k =>
+      let i := commitmentIndices[k]!
+      weights.set! i (weights[i]! + rPowers[k]!)
 
   -- Step 4.1b: RLC = Σ_i weights[i] commitments[i].
   let rlc : G1 := (Bls.G1.uncompress (← g1Lincomb commitments weights)).toOption.get!
 
   -- Step 4.2: RLI = [Σ_k r^k I_k(s)].
-  let mut sumInterp : PolynomialCoeff :=
-    Array.replicate n Fr.zero
-  for k in [:numCells] do
-    let interp := interpolatePolynomialcoeff (cosetForCell cellIndices[k]!) cosetsEvals[k]!
-    let scaled := multiplyPolynomialcoeff #[rPowers[k]!] interp
-    sumInterp := addPolynomialcoeff sumInterp scaled
+  let sumInterp : PolynomialCoeff := (Array.range numCells).foldl
+    (init := Array.replicate n Fr.zero)
+    fun sumInterp k =>
+      let interp := interpolatePolynomialcoeff
+        (cosetForCell cellIndices[k]!) cosetsEvals[k]!
+      let scaled := multiplyPolynomialcoeff #[rPowers[k]!] interp
+      addPolynomialcoeff sumInterp scaled
   let rli : G1 := (Bls.G1.uncompress
                   (← g1Lincomb (setup.g1MonomialBytes.extract 0 n) sumInterp)).toOption.get!
 
   -- Step 4.3: RLP = Σ_k (r^k * h_k^n) proofs[k].
-  let mut weightedRPowers : Array Fr := Array.mkEmpty numCells
-  for k in [:numCells] do
-    let h_k := cosetShiftForCell cellIndices[k]!
-    let h_k_pow := h_k ^ (Fr.ofNat n)
-    weightedRPowers := weightedRPowers.push (rPowers[k]! * h_k_pow)
+  let weightedRPowers : Array Fr := Array.ofFn (n := numCells) fun k =>
+    let h_k := cosetShiftForCell cellIndices[k.val]!
+    rPowers[k.val]! * (h_k ^ (Fr.ofNat n))
   let rlp : G1 := (Bls.G1.uncompress (← g1Lincomb proofs weightedRPowers)).toOption.get!
 
   -- Step 4.4: RL = RLC - RLI + RLP.
@@ -309,52 +284,40 @@ def verifyCellKzgProofBatch
   if cellIndices.size ≠ commitmentsBytes.size then
     throw (.inputLengthMismatch "cellIndices" commitmentsBytes.size cellIndices.size)
 
-  for cb in commitmentsBytes do
-    if cb.size ≠ BYTES_PER_COMMITMENT then
-      throw (.badCommitmentSize cb.size)
-  for ci in cellIndices do
-    if ci ≥ CELLS_PER_EXT_BLOB then
-      throw .cellIndexOutOfBounds
-  for c in cells do
-    if c.size ≠ BYTES_PER_CELL then
-      throw (.badCellSize c.size)
-  for pb in proofsBytes do
-    if pb.size ≠ BYTES_PER_PROOF then
-      throw (.badProofSize pb.size)
+  if let some cb := commitmentsBytes.find? (fun cb => cb.size != BYTES_PER_COMMITMENT) then
+    throw (.badCommitmentSize cb.size)
+  if cellIndices.any (· ≥ CELLS_PER_EXT_BLOB) then
+    throw .cellIndexOutOfBounds
+  if let some c := cells.find? (fun c => c.size != BYTES_PER_CELL) then
+    throw (.badCellSize c.size)
+  if let some pb := proofsBytes.find? (fun pb => pb.size != BYTES_PER_PROOF) then
+    throw (.badProofSize pb.size)
 
   -- Deduplicate commitments while preserving the index of first occurrence.
-  let mut deduped : Array KZGCommitment := Array.empty
-  let mut commitmentIndices : Array CommitmentIndex := Array.empty
-  for i in [:commitmentsBytes.size] do
-    let cb := commitmentsBytes[i]!
-    -- Validate (also acts as `bytes_to_kzg_commitment`).
-    let _ ← match bytesToKzgCommitment cb with
-            | .ok c    => pure c
-            | .error _ => throw (.invalidCommitment (some i))
-    -- Find or append. We use a simple linear scan; the input list of
-    -- commitments tends to be short relative to the cell list.
-    let mut found : Option Nat := none
-    for j in [:deduped.size] do
-      if deduped[j]! == cb then
-        found := some j
-        break
-    match found with
-    | some j => commitmentIndices := commitmentIndices.push j
-    | none   =>
-      commitmentIndices := commitmentIndices.push deduped.size
-      deduped := deduped.push cb
+  -- We use a simple linear scan (`idxOf?`); the input list of commitments
+  -- tends to be short relative to the cell list.
+  let (deduped, commitmentIndices) ←
+    (Array.range commitmentsBytes.size).foldlM
+      (init := ((#[] : Array KZGCommitment), (#[] : Array CommitmentIndex)))
+      fun (deduped, commitmentIndices) i => do
+        let cb := commitmentsBytes[i]!
+        -- Validate (also acts as `bytes_to_kzg_commitment`).
+        let _ ← match bytesToKzgCommitment cb with
+                | .ok c    => pure c
+                | .error _ => throw (.invalidCommitment (some i))
+        -- Find or append.
+        match deduped.idxOf? cb with
+        | some j => pure (deduped, commitmentIndices.push j)
+        | none   => pure (deduped.push cb, commitmentIndices.push deduped.size)
 
   -- Convert cells to coset evaluations.
-  let mut cosetsEvals : Array CosetEvals := Array.mkEmpty cells.size
-  for c in cells do
-    cosetsEvals := cosetsEvals.push (← cellToCosetEvals c)
+  let cosetsEvals : Array CosetEvals ← cells.mapM fun c =>
+    cellToCosetEvals c
 
   -- Validate proofs.
-  let mut proofs : Array KZGProof := Array.mkEmpty proofsBytes.size
-  for i in [:proofsBytes.size] do
-    let pb := proofsBytes[i]!
-    match bytesToKzgProof pb with
-    | .ok p    => proofs := proofs.push p
+  let proofs : Array KZGProof ← (Array.range proofsBytes.size).mapM fun i =>
+    match bytesToKzgProof proofsBytes[i]! with
+    | .ok p    => pure p
     | .error _ => throw (.invalidProof (some i))
 
   verifyCellKzgProofBatchImpl deduped commitmentIndices cellIndices cosetsEvals proofs
