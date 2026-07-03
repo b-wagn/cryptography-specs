@@ -399,7 +399,7 @@ theorem evaluatePolynomialInEvaluationForm_fastPath
 
 
 
--- Proofs about barycentricSumAux --
+-- Proofs about barycentricSumAux and evaluation outside of the fast path--
 
 /-- Base case of the barycentric-sum fold: with no remaining terms, the
 accumulator is returned unchanged. Registered as `simp` so downstream
@@ -421,5 +421,47 @@ theorem barycentricSumAux_acc_add
     simp only [barycentricSumAux]
     rw [Fr.add_right_comm]
     exact ih _ _
+
+/-- Splitting the count decomposes the fold: summing over `a + b` terms
+starting at `i` equals summing over the first `a` (yielding some
+intermediate accumulator), then summing over the next `b` starting at
+`i + a`. The workhorse for reasoning about `barycentricSumAux`
+inductively. -/
+theorem barycentricSumAux_add
+    (polynomial domain : Array Fr) (z acc : Fr) (i a b : Nat) :
+    barycentricSumAux polynomial domain z acc i (a + b) =
+      barycentricSumAux polynomial domain z
+        (barycentricSumAux polynomial domain z acc i a) (i + a) b := by
+  induction a generalizing acc i with
+  | zero => simp
+  | succ n ih =>
+    rw [show n + 1 + b = (n + b) + 1 from by omega]
+    simp only [barycentricSumAux]
+    rw [ih, show i + 1 + n = i + (n + 1) from by omega]
+
+/-- Direct recursive form of the barycentric sum: the sum of chunks
+`polynomial[i]! * domain[i]! / (z - domain[i]!)` for `i ∈ [0, n)`.
+Structurally a "sum from the right" — expressing the intended
+mathematical shape of `barycentricSumAux`. -/
+def barycentricRefSum (polynomial domain : Array Fr) (z : Fr) : Nat → Fr
+  | 0 => Fr.zero
+  | n + 1 => barycentricRefSum polynomial domain z n +
+             polynomial[n]! * domain[n]! / (z - domain[n]!)
+
+/-- `barycentricSumAux` starting from `Fr.zero` at index `0` equals the
+direct sum `barycentricRefSum`. This is the mathematically natural
+formulation the docstring on `evaluatePolynomialInEvaluationFormAux`
+refers to. -/
+theorem barycentricSumAux_zero_eq_refSum
+    (polynomial domain : Array Fr) (z : Fr) (n : Nat) :
+    barycentricSumAux polynomial domain z Fr.zero 0 n =
+      barycentricRefSum polynomial domain z n := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    rw [barycentricSumAux_add polynomial domain z Fr.zero 0 n 1]
+    simp only [barycentricSumAux, Nat.zero_add]
+    rw [ih]
+    rfl
 
 end EthCryptographySpecs.Kzg
