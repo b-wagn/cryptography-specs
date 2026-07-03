@@ -397,4 +397,29 @@ theorem evaluatePolynomialInEvaluationForm_fastPath
     evaluatePolynomialInEvaluationForm polynomial z = polynomial[i]! :=
   evaluatePolynomialInEvaluationFormAux_fastPath polynomial _ z i h
 
+
+
+-- Proofs about barycentricSumAux --
+
+/-- Base case of the barycentric-sum fold: with no remaining terms, the
+accumulator is returned unchanged. Registered as `simp` so downstream
+reasoning normalizes the empty-count case automatically. -/
+@[simp] theorem barycentricSumAux_zero
+    (polynomial domain : Array Fr) (z acc : Fr) (i : Nat) :
+    barycentricSumAux polynomial domain z acc i 0 = acc := rfl
+
+/-- The initial accumulator contributes additively to the barycentric fold:
+adding `extra` to the starting accumulator is the same as adding `extra` to
+the final result. -/
+theorem barycentricSumAux_acc_add
+    (polynomial domain : Array Fr) (z acc extra : Fr) (i count : Nat) :
+    barycentricSumAux polynomial domain z (acc + extra) i count =
+      barycentricSumAux polynomial domain z acc i count + extra := by
+  induction count generalizing acc i with
+  | zero => rfl
+  | succ n ih =>
+    simp only [barycentricSumAux]
+    rw [Fr.add_right_comm]
+    exact ih _ _
+
 end EthCryptographySpecs.Kzg
